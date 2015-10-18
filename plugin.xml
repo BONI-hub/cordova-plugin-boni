@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin id="cordova.plugin.boni" version="0.0.1" xmlns="http://apache.org/cordova/ns/plugins/1.0">
+  <name>Boni</name>
+  <description>Cordova Boni Plugin</description>
+  <license>Apache 2.0</license>
+  <keywords>cordova,boni</keywords>
+  <js-module name="Config" src="www/config.js">
+    <runs/>
+  </js-module>
+  <js-module name="Beacon" src="www/model/Beacon.js">
+    <runs/>
+  </js-module>
+  <js-module name="Everlive" src="www/lib/everlive.all.js">
+    <runs/>
+  </js-module>
+  <js-module name="Lodash" src="www/lib/lodash.js">
+    <runs/>
+  </js-module>
+  <js-module name="Async" src="www/lib/async.js">
+    <runs/>
+  </js-module>
+  <js-module name="everliveProvider" src="www/EverliveProvider.js">
+    <merges target="cordova.plugins"/>
+  </js-module>
+  <js-module name="beaconRegistry" src="www/BeaconRegistry.js">
+    <merges target="cordova.plugins"/>
+  </js-module>
+  <js-module name="boniManager" src="www/BoniManager.js">
+    <merges target="cordova.plugins"/>
+  </js-module>
+  <dependency id="com.unarin.cordova.beacon" url="https://github.com/petermetz/cordova-plugin-ibeacon"/>
+</plugin>
