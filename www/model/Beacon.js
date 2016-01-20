@@ -56,7 +56,7 @@ Beacon.prototype.getData = function(done) {
 			 * Get data from the cloud
 			 */
 			cordova.plugins.everliveProvider.getData(
-				'Beacon', {
+				'Spot', {
 					'uuid': that.uuid,
 					'major': that.major,
 					'minor': that.minor
