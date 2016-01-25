@@ -10,6 +10,7 @@ function EverliveProvider() {
 EverliveProvider.prototype.getData = function(type, query, callback) {
 	var currentType = this.provider.data(type);
 	currentType.get(query, function(data) {
+		console.log("DATA: " + JSON.stringify(data));
 		callback(null, data);
 	}, function(err) {
 		console.log(err.message);

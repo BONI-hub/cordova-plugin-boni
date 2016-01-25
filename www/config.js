@@ -5,7 +5,7 @@ module.exports = {
 		'a32773da-fd5d-11e4-a322-1697f925ec7b'
 	],
 	identifier: 'BoniBeacon',
-	apikey: 'BmtNZDdA16K2wlEd',
+	apikey: 'bmtnzdda16k2wled',
 	proximity: {
 		immediate: {
 			name: 'ProximityImmediate',

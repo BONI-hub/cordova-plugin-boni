@@ -1,6 +1,7 @@
 'use strict';
 
 var async = require('cordova.plugin.boni.Async');
+var Everlive = require('cordova.plugin.boni.Everlive');
 
 /**
  * Object that represent beacon and contains all its metadata
@@ -18,21 +19,21 @@ var async = require('cordova.plugin.boni.Async');
  */
 function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
 
-	/**
-	 * Check whether the mandatory arguments are provided
-	 */
-	if (!uuid || !major || !minor) {
-		console.log('Mandatory argument is not provided');
-		return;
-	}
+  /**
+   * Check whether the mandatory arguments are provided
+   */
+  if (!uuid || !major || !minor) {
+    console.log('Mandatory argument is not provided');
+    return;
+  }
 
-	this.uuid = uuid.toUpperCase();
-	this.major = parseInt(major);
-	this.minor = parseInt(minor);
-	this.rssi = parseInt(rssi);
-	this.tx = parseInt(tx);
-	this.accuracy = accuracy;
-	this.proximity = proximity;
+  this.uuid = uuid.toUpperCase();
+  this.major = parseInt(major);
+  this.minor = parseInt(minor);
+  this.rssi = parseInt(rssi);
+  this.tx = parseInt(tx);
+  this.accuracy = accuracy;
+  this.proximity = proximity;
 }
 
 /**
@@ -41,57 +42,72 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
  */
 Beacon.prototype.getData = function(done) {
 
-	/**
-	 * This is because of the async scope
-	 */
-	var that = this;
+  /**
+   * This is because of the async scope
+   */
+  var that = this;
 
-	/**
-	 * Organize all actions related to retrieve of cloud object here.
-	 */
-	async.waterfall([
-		function(callback) {
+  /**
+   * Organize all actions related to retrieve of cloud object here.
+   */
+  async.waterfall([
+    function(callback) {
+
+			var query = new Everlive.Query();
+			query.where().eq('uuid', that.uuid);
+			query.where().eq('major', that.major);
+			query.where().eq('minor', that.minor);
+
+      /**
+       * Determine the spot
+       */
+      cordova.plugins.everliveProvider.getData(
+        'Spot', query,
+        callback
+      );
+    },
+		function(spot, callback) {
+
+			console.log("spot=" + JSON.stringify(spot));
+			var query = new Everlive.Query();
+			query.where().eq('spotId', spot.Id);
 
 			/**
 			 * Get data from the cloud
 			 */
 			cordova.plugins.everliveProvider.getData(
-				'Spot', {
-					'uuid': that.uuid,
-					'major': that.major,
-					'minor': that.minor
-				},
+				'Content', query,
 				callback
 			);
 		}
-	], function(err, cloudData) {
+  ], function(err, cloudData) {
 
-		/**
-		 * Get the first item from the cloud object.
-		 * There should be only one item.
-		 */
-		if (cloudData && cloudData.result[0] && cloudData.result[0].data) {
-			that.data = cloudData.result[0].data;
-		}
+    /**
+     * Get the first item from the cloud object.
+     * There should be only one item.
+     */
+    if (cloudData && cloudData.result[0] && cloudData.result[0].data) {
+      that.data = cloudData.result[0].data;
+    }
 
-		done(err, that);
-	});
+    done(err, that);
+  });
 };
 
 /**
  * Parse the Beacon object and print it in the console
  */
 Beacon.prototype.toString = function() {
-	console.log(
-		'UUID:' + this.uuid +
-		', Major: ' + this.major +
-		', Minor: ' + this.minor +
-		', Proximity: ' + this.proximity +
-		', RSSI: ' + this.rssi +
-		', Tx: ' + this.tx +
-		', Accuracy: ' + this.accuracy +
-		', Data: ' + this.data
-	);
+  console.log(
+    'UUID:' + this.uuid +
+    ', Major: ' + this.major +
+    ', Minor: ' + this.minor +
+    ', Proximity: ' + this.proximity +
+    ', RSSI: ' + this.rssi +
+    ', Tx: ' + this.tx +
+    ', Accuracy: ' + this.accuracy +
+    ', Data: ' + this.data
+  );
 };
 
 module.exports = Beacon;

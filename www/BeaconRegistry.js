@@ -8,10 +8,9 @@ var Beacon = require('cordova.plugin.boni.Beacon'),
 /**
  * Event callbacks
  */
-var onUserJustInSpot = null;
-var onUserFarFromSpot = null;
-var onUserNearToSpot = null;
-var onUserImmediateToSpot = null;
+var onFarFromSpot = null;
+var onNearToSpot = null;
+var onImmediateToSpot = null;
 
 /**
  * Collection of all beacons in range
@@ -124,13 +123,13 @@ BeaconRegistry.prototype.observe = function(beacon) {
          */
         switch (currentBeacon.proximity) {
           case config.proximity.immediate.name:
-            callRegisteredCallback(onUserImmediateToSpot, currentBeacon);
+            callRegisteredCallback(onImmediateToSpot, currentBeacon);
             break;
           case config.proximity.near.name:
-            callRegisteredCallback(onUserNearToSpot, currentBeacon);
+            callRegisteredCallback(onNearToSpot, currentBeacon);
             break;
           case config.proximity.far.name:
-            callRegisteredCallback(onUserFarFromSpot, currentBeacon);
+            callRegisteredCallback(onFarFromSpot, currentBeacon);
             break;
           default:
 
@@ -170,54 +169,31 @@ function add(error, beacon) {
      * If there are no errors, add beacon to beacon registry
      */
     beacons.push(beacon);
-
-    /**
-     * If onUserInSpot callback is set, call it
-     */
-    if (_.isFunction(onUserJustInSpot)) {
-
-      /**
-       * Call registered onUserInSpot callback
-       * @param  {[type]} error       error message if there is any, null if there is no errors
-       * @param  {JSON} beacon.data beacon's data
-       */
-      if (beacon.data) {
-        onUserJustInSpot(error, beacon.data);
-      }
-    }
   }
 }
 
 /**
- * Register onUserInSpot callback
- * @param  {Function} callback function to be called when the user just entering to spot
- */
-BeaconRegistry.prototype.onUserJustInSpot = function(callback) {
-  onUserJustInSpot = callback;
-};
-
-/**
- * Register onUserImmediateToSpot callback
+ * Register onImmediateToSpot callback
  * @param  {Function} callback function to be called when the user is immediate to spot
  */
-BeaconRegistry.prototype.onUserImmediateToSpot = function(callback) {
-  onUserImmediateToSpot = callback;
+BeaconRegistry.prototype.onImmediateToSpot = function(callback) {
+  onImmediateToSpot = callback;
 };
 
 /**
- * Register onUserNearToSpot callback
+ * Register onNearToSpot callback
  * @param  {Function} callback function to be called when the user is near to spot
  */
-BeaconRegistry.prototype.onUserNearToSpot = function(callback) {
-  onUserNearToSpot = callback;
+BeaconRegistry.prototype.onNearToSpot = function(callback) {
+  onNearToSpot = callback;
 };
 
 /**
- * Register onUserFarFromSpot callback
+ * Register onFarFromSpot callback
  * @param  {Function} callback function to be called when the user is far from spot
  */
-BeaconRegistry.prototype.onUserFarFromSpot = function(callback) {
-  onUserFarFromSpot = callback;
+BeaconRegistry.prototype.onFarFromSpot = function(callback) {
+  onFarFromSpot = callback;
 };
 
 module.exports.beaconRegistry = new BeaconRegistry();
