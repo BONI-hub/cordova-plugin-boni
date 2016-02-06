@@ -87,7 +87,8 @@ Beacon.prototype.getData = function(done) {
      * There should be only one item.
      */
     if (cloudData && cloudData.result[0] && cloudData.result[0].data) {
-      that.data = cloudData.result[0].data;
+      //Pass the entire data and cloud data ID
+      that.data = cloudData.result[0];
     }
 
     done(err, that);
