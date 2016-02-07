@@ -53,10 +53,12 @@ Beacon.prototype.getData = function(done) {
   async.waterfall([
     function(callback) {
 
-			var query = new Everlive.Query();
-			query.where().eq('uuid', that.uuid);
-			query.where().eq('major', that.major);
-			query.where().eq('minor', that.minor);
+      var query = new Everlive.Query();
+      query.where()
+        .and()
+        .eq('uuid', that.uuid.toLowerCase())
+        .eq('major', that.major.toString())
+        .eq('minor', that.minor.toString());
 
       /**
        * Determine the spot
@@ -66,29 +68,30 @@ Beacon.prototype.getData = function(done) {
         callback
       );
     },
-		function(spot, callback) {
+    function(spot, callback) {
 
-			console.log("spot=" + JSON.stringify(spot));
-			var query = new Everlive.Query();
-			query.where().eq('spotId', spot.Id);
+      console.log("################### spot=" + JSON.stringify(spot));
+      var query = new Everlive.Query();
+      query.where().eq('spotId', spot.result[0].Id);
 
-			/**
-			 * Get data from the cloud
-			 */
-			cordova.plugins.everliveProvider.getData(
-				'Content', query,
-				callback
-			);
-		}
+      /**
+       * Get data from the cloud
+       */
+      cordova.plugins.everliveProvider.getData(
+        'Content', query,
+        callback
+      );
+    }
   ], function(err, cloudData) {
 
     /**
      * Get the first item from the cloud object.
      * There should be only one item.
      */
-    if (cloudData && cloudData.result[0] && cloudData.result[0].data) {
-      //Pass the entire data and cloud data ID
-      that.data = cloudData.result[0];
+    if (cloudData && cloudData.result) {
+
+      //Pass the entire cloud data
+      that.data = cloudData.result;
     }
 
     done(err, that);
