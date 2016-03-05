@@ -1,0 +1,24 @@
+{
+  "name": "cordova-plugin-boni",
+  "version": "0.0.1",
+  "description": "Cordova Boni Plugin",
+  "cordova": {
+    "id": "cordova.plugin.boni",
+    "platforms": []
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BONI-hub/cordova-plugin-boni.git"
+  },
+  "keywords": [
+    "cordova",
+    "boni",
+    "ecosystem:cordova"
+  ],
+  "author": "BONI Team",
+  "license": "Apache 2.0",
+  "bugs": {
+    "url": "https://github.com/BONI-hub/cordova-plugin-boni/issues"
+  },
+  "homepage": "https://github.com/BONI-hub/cordova-plugin-boni#readme"
+}
