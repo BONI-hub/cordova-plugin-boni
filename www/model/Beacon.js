@@ -69,18 +69,21 @@ Beacon.prototype.getData = function(done) {
       );
     },
     function(spot, callback) {
+      if (spot.result.length > 0) {
+        var query = new Everlive.Query();
+        query.where().eq('spotId', spot.result[0].Id);
 
-      console.log("################### spot=" + JSON.stringify(spot));
-      var query = new Everlive.Query();
-      query.where().eq('spotId', spot.result[0].Id);
+        /**
+         * Get data from the cloud
+         */
+        cordova.plugins.everliveProvider.getData(
+          'Content', query,
+          callback
+        );
+      } else {
+        callback('No spots');
+      }
 
-      /**
-       * Get data from the cloud
-       */
-      cordova.plugins.everliveProvider.getData(
-        'Content', query,
-        callback
-      );
     }
   ], function(err, cloudData) {
 
