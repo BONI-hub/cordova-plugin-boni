@@ -20,5 +20,8 @@
   "bugs": {
     "url": "https://github.com/BONI-hub/cordova-plugin-boni/issues"
   },
-  "homepage": "https://github.com/BONI-hub/cordova-plugin-boni#readme"
+  "homepage": "https://github.com/BONI-hub/cordova-plugin-boni#readme",
+  "devDependencies": {
+
+  }
 }

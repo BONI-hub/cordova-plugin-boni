@@ -15,7 +15,7 @@ var Everlive = require('cordova.plugin.boni.Everlive');
  *                         		- ProximityFar - more than 4m far away from the beacon
  * @param {int} rssi      	signal strength
  * @param {int} tx        	transmission power
- * @param {float} accuracy  rough distance estimate limited to two decimal places (in metres)
+ * @param {float} accuracy  rough distance estimate limited to two decimal places (in meteres)
  */
 function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
 
@@ -37,8 +37,8 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
 }
 
 /**
- * Get the cloud data based on the beacon metadata (uuid, major and minor ID)
- * @param  {Function} done Callback to be called when the cloud data is retrieved
+ * Get the Content (cloud) data based on the iBeacon signal (uuid, major and minor ID)
+ * @param  {Function} done Callback to be called when the Content (cloud) data is retrieved
  */
 Beacon.prototype.getData = function(done) {
 
@@ -48,7 +48,7 @@ Beacon.prototype.getData = function(done) {
   var that = this;
 
   /**
-   * Organize all actions related to retrieve of cloud object here.
+   * Organize all actions related to retrieve of Content (cloud) objects here.
    */
   async.waterfall([
     function(callback) {
@@ -61,22 +61,29 @@ Beacon.prototype.getData = function(done) {
         .eq('minor', that.minor.toString());
 
       /**
-       * Determine the spot
+       * Determine the spot based on the signal that came from iBeacon
        */
-      cordova.plugins.everliveProvider.getData(
+      cordova.plugins.dataProvider.getData(
         'Spot', query,
         callback
       );
     },
     function(spot, callback) {
+      /**
+       * If there is a spot for this iBeacon
+       */
       if (spot.result.length > 0) {
+
+        /**
+         * Prepare a query that filter the Content items by spotId
+         */
         var query = new Everlive.Query();
         query.where().eq('spotId', spot.result[0].Id);
 
         /**
-         * Get data from the cloud
+         * Get the Content (cloud) data
          */
-        cordova.plugins.everliveProvider.getData(
+        cordova.plugins.dataProvider.getData(
           'Content', query,
           callback
         );
@@ -88,8 +95,7 @@ Beacon.prototype.getData = function(done) {
   ], function(err, cloudData) {
 
     /**
-     * Get the first item from the cloud object.
-     * There should be only one item.
+     * If there is a Content (cloud) data, pass it to the mobile app
      */
     if (cloudData && cloudData.result) {
 

@@ -3,7 +3,7 @@
 var Beacon = require('cordova.plugin.boni.Beacon'),
   config = require('cordova.plugin.boni.Config'),
   _ = require('cordova.plugin.boni.Lodash'),
-  beacons = []; //Array with the beacons in range
+  beacons = []; //Array with the iBeacons in range
 
 /**
  * Event callbacks
@@ -13,15 +13,15 @@ var onNearToSpot = null;
 var onImmediateToSpot = null;
 
 /**
- * Collection of all beacons in range
+ * Collection of all iBeacons in range
  */
 function BeaconRegistry() {}
 
 /**
- * Check whether the beacon defined with provided meta data is already registered
+ * Check whether the iBeacon defined with provided meta data is already registered
  * in the beacon registry.
- * @param  {Beacon} beacon object that represents beacon meatdata
- * @return {boolean}       true if provided beacon is already registered in beacon registry,
+ * @param  {Beacon} beacon object that represents iBeacon metadata
+ * @return {boolean}       true if provided iBeacon is already registered in beacon registry,
  *                         otherwise return false
  */
 BeaconRegistry.prototype.getBeaconFromRegistry = function(uuid, major, minor) {
@@ -95,7 +95,7 @@ BeaconRegistry.prototype.observe = function(beacon) {
   if (currentBeacon) {
 
     /**
-     * Update beacon metadata
+     * Update iBeacon metadata
      */
     currentBeacon.proximity = beacon.proximity;
     currentBeacon.rssi = beacon.rssi;
@@ -140,7 +140,7 @@ BeaconRegistry.prototype.observe = function(beacon) {
   } else {
     /**
      * If it is not registered, retrieve its data.
-     * In this way only one server call is initiated to retrieve beacon data.
+     * In this way only one server call is initiated to retrieve iBeacon Content (cloud) data.
      */
     currentBeacon = new Beacon(
       beacon.uuid,

@@ -3,11 +3,11 @@
 var Everlive = require('cordova.plugin.boni.Everlive');
 var config = require('cordova.plugin.boni.Config');
 
-function EverliveProvider() {
+function DataProvider() {
 	this.provider = new Everlive(config.apikey);
 }
 
-EverliveProvider.prototype.getData = function(type, query, callback) {
+DataProvider.prototype.getData = function(type, query, callback) {
 	var currentType = this.provider.data(type);
 	currentType.get(query, function(data) {
 		console.log("DATA: " + JSON.stringify(data));
@@ -18,4 +18,4 @@ EverliveProvider.prototype.getData = function(type, query, callback) {
 	});
 };
 
-module.exports.everliveProvider = new EverliveProvider();
+module.exports.dataProvider = new DataProvider();

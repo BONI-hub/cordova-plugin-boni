@@ -2,21 +2,21 @@
 
 var config = require('cordova.plugin.boni.Config');
 
-function BoniManager() {}
+function Boni() {}
 
-BoniManager.prototype.onImmediateToSpot = function(callback) {
+Boni.prototype.onImmediateToSpot = function(callback) {
 	cordova.plugins.beaconRegistry.onImmediateToSpot(callback);
 };
 
-BoniManager.prototype.onNearToSpot = function(callback) {
+Boni.prototype.onNearToSpot = function(callback) {
 	cordova.plugins.beaconRegistry.onNearToSpot(callback);
 };
 
-BoniManager.prototype.onFarFromSpot = function(callback) {
+Boni.prototype.onFarFromSpot = function(callback) {
 	cordova.plugins.beaconRegistry.onFarFromSpot(callback);
 };
 
-BoniManager.prototype.ranging = function() {
+Boni.prototype.ranging = function() {
 
 	var delegate = new cordova.plugins.locationManager.Delegate();
 
@@ -45,4 +45,4 @@ BoniManager.prototype.ranging = function() {
 	}
 };
 
-module.exports.boniManager = new BoniManager();
+module.exports.boni = new Boni();

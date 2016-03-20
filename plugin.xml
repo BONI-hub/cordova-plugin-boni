@@ -7,7 +7,7 @@
   <js-module name="Config" src="www/config.js">
     <runs/>
   </js-module>
-  <js-module name="Beacon" src="www/model/Beacon.js">
+  <js-module name="Beacon" src="www/model/beacon.js">
     <runs/>
   </js-module>
   <js-module name="Everlive" src="www/lib/everlive.all.js">
@@ -19,13 +19,13 @@
   <js-module name="Async" src="www/lib/async.js">
     <runs/>
   </js-module>
-  <js-module name="everliveProvider" src="www/EverliveProvider.js">
+  <js-module name="dataProvider" src="www/data-provider.js">
     <merges target="cordova.plugins"/>
   </js-module>
-  <js-module name="beaconRegistry" src="www/BeaconRegistry.js">
+  <js-module name="beaconRegistry" src="www/beacon-registry.js">
     <merges target="cordova.plugins"/>
   </js-module>
-  <js-module name="boniManager" src="www/BoniManager.js">
+  <js-module name="boni" src="www/boni.js">
     <merges target="cordova.plugins"/>
   </js-module>
   <dependency id="com.unarin.cordova.beacon" url="https://github.com/petermetz/cordova-plugin-ibeacon"/>
