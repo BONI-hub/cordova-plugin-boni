@@ -1,7 +1,7 @@
 'use strict';
 
-var async = require('cordova.plugin.boni.Async');
-var Everlive = require('cordova.plugin.boni.Everlive');
+// var async = require('cordova.plugin.boni.Async');
+// var Everlive = require('cordova.plugin.boni.Everlive');
 
 /**
  * Object that represent beacon and contains all its metadata
@@ -32,7 +32,7 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
   this.minor = parseInt(minor);
   this.rssi = parseInt(rssi);
   this.tx = parseInt(tx);
-  this.accuracy = accuracy;
+  this.accuracy = parseFloat(accuracy);
   this.proximity = proximity;
 }
 
@@ -47,13 +47,15 @@ Beacon.prototype.getData = function(done) {
    */
   var that = this;
 
+  console.log(geletest);
+
   /**
    * Organize all actions related to retrieve of Content (cloud) objects here.
    */
-  async.waterfall([
+  cordova.plugins.async.waterfall([
     function(callback) {
 
-      var query = new Everlive.Query();
+      var query = new cordova.plugins.Everlive.Query();
       query.where()
         .and()
         .eq('uuid', that.uuid.toLowerCase())
@@ -77,7 +79,7 @@ Beacon.prototype.getData = function(done) {
         /**
          * Prepare a query that filter the Content items by spotId
          */
-        var query = new Everlive.Query();
+        var query = new cordova.plugins.Everlive.Query();
         query.where().eq('spotId', spot.result[0].Id);
 
         /**

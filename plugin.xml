@@ -11,13 +11,13 @@
     <runs/>
   </js-module>
   <js-module name="Everlive" src="www/lib/everlive.all.js">
-    <runs/>
+    <merges target="cordova.plugins"/>
   </js-module>
   <js-module name="Lodash" src="www/lib/lodash.js">
     <runs/>
   </js-module>
-  <js-module name="Async" src="www/lib/async.js">
-    <runs/>
+  <js-module name="аsync" src="www/lib/async.js">
+    <merges target="cordova.plugins"/>
   </js-module>
   <js-module name="dataProvider" src="www/data-provider.js">
     <merges target="cordova.plugins"/>
