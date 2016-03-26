@@ -1,8 +1,8 @@
 "use strict";
 
-var Beacon = require('cordova.plugin.boni.Beacon'),
-  config = require('cordova.plugin.boni.Config'),
-  _ = require('cordova.plugin.boni.Lodash'),
+var Beacon = require('cordova.plugin.boni.beacon'),
+  config = require('cordova.plugin.boni.config'),
+  _ = require('cordova.plugin.boni.lodash'),
   beacons = []; //Array with the iBeacons in range
 
 /**
@@ -196,4 +196,4 @@ BeaconRegistry.prototype.onFarFromSpot = function(callback) {
   onFarFromSpot = callback;
 };
 
-module.exports.beaconRegistry = new BeaconRegistry();
+module.exports = BeaconRegistry;

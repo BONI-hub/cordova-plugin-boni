@@ -4,26 +4,26 @@
   <description>Cordova Boni Plugin</description>
   <license>Apache 2.0</license>
   <keywords>cordova,boni</keywords>
-  <js-module name="Config" src="www/config.js">
+  <js-module name="config" src="www/config.js">
     <runs/>
   </js-module>
-  <js-module name="Beacon" src="www/model/beacon.js">
+  <js-module name="beacon" src="www/model/beacon.js">
     <runs/>
   </js-module>
-  <js-module name="Everlive" src="www/lib/everlive.all.js">
-    <merges target="cordova.plugins"/>
+  <js-module name="everlive" src="www/lib/everlive.all.js">
+    <runs/>
   </js-module>
-  <js-module name="Lodash" src="www/lib/lodash.js">
+  <js-module name="lodash" src="www/lib/lodash.js">
     <runs/>
   </js-module>
   <js-module name="аsync" src="www/lib/async.js">
-    <merges target="cordova.plugins"/>
+    <runs/>
   </js-module>
   <js-module name="dataProvider" src="www/data-provider.js">
-    <merges target="cordova.plugins"/>
+    <runs/>
   </js-module>
   <js-module name="beaconRegistry" src="www/beacon-registry.js">
-    <merges target="cordova.plugins"/>
+    <runs/>
   </js-module>
   <js-module name="boni" src="www/boni.js">
     <merges target="cordova.plugins"/>

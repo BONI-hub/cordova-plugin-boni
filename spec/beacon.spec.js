@@ -1,11 +1,7 @@
 'use strict';
 
-var geletest = 'qkoooo';
-var cordova = {};
-cordova.plugins = {};
-cordova.plugins.async = require('../www/lib/async.js');
-
-var Beacon = require('../www/model/beacon.js');
+require('./setup.js');
+var Beacon = require('cordova.plugin.boni.Beacon');
 
 
 var uuid = "fda50693-a4e2-4fb1-afcf-c6eb07647825",

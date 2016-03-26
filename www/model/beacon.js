@@ -1,7 +1,8 @@
 'use strict';
 
-// var async = require('cordova.plugin.boni.Async');
-// var Everlive = require('cordova.plugin.boni.Everlive');
+var async = require('cordova.plugin.boni.аsync'),
+  Everlive = require('cordova.plugin.boni.everlive'),
+  DataProvider = require('cordova.plugin.boni.dataProvider');
 
 /**
  * Object that represent beacon and contains all its metadata
@@ -42,30 +43,32 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
  */
 Beacon.prototype.getData = function(done) {
 
+  var dataProvider = new DataProvider();
+
   /**
    * This is because of the async scope
    */
   var that = this;
 
-  console.log(geletest);
-
   /**
    * Organize all actions related to retrieve of Content (cloud) objects here.
    */
-  cordova.plugins.async.waterfall([
+  async.waterfall([
     function(callback) {
 
-      var query = new cordova.plugins.Everlive.Query();
+      var query = new Everlive.Query();
       query.where()
         .and()
         .eq('uuid', that.uuid.toLowerCase())
         .eq('major', that.major.toString())
         .eq('minor', that.minor.toString());
 
+      console.log(dataProvider.getData);
+
       /**
        * Determine the spot based on the signal that came from iBeacon
        */
-      cordova.plugins.dataProvider.getData(
+      dataProvider.getData(
         'Spot', query,
         callback
       );
@@ -79,13 +82,13 @@ Beacon.prototype.getData = function(done) {
         /**
          * Prepare a query that filter the Content items by spotId
          */
-        var query = new cordova.plugins.Everlive.Query();
+        var query = new Everlive.Query();
         query.where().eq('spotId', spot.result[0].Id);
 
         /**
          * Get the Content (cloud) data
          */
-        cordova.plugins.dataProvider.getData(
+        dataProvider.getData(
           'Content', query,
           callback
         );
