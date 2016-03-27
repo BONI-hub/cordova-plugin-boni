@@ -1,4 +1,5 @@
 # cordova-plugin-boni
+`Supplement real things with virtual context`
 
 [![Build Status](https://travis-ci.org/BONI-hub/cordova-plugin-boni.svg?branch=master)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)
 [![Test Coverage](https://codeclimate.com/github/BONI-hub/cordova-plugin-boni/badges/coverage.svg)](https://codeclimate.com/github/BONI-hub/cordova-plugin-boni/coverage)
