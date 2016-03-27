@@ -24,8 +24,7 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
    * Check whether the mandatory arguments are provided
    */
   if (!uuid || !major || !minor) {
-    console.log('Mandatory argument is not provided');
-    return;
+    throw 'Mandatory argument is not provided';
   }
 
   this.uuid = uuid.toUpperCase();
@@ -62,8 +61,6 @@ Beacon.prototype.getData = function(done) {
         .eq('uuid', that.uuid.toLowerCase())
         .eq('major', that.major.toString())
         .eq('minor', that.minor.toString());
-
-      console.log(dataProvider.getData);
 
       /**
        * Determine the spot based on the signal that came from iBeacon

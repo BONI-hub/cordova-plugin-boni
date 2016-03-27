@@ -11,16 +11,16 @@ var originalRequire = Module.prototype.require;
 Module.prototype.require = function() {
   var moduleId = arguments[0];
   switch (moduleId) {
-    case 'cordova.plugin.boni.Everlive':
+    case 'cordova.plugin.boni.everlive':
       arguments[0] = modulePath + '/../www/lib/everlive.all.js';
       break;
-    case 'cordova.plugin.boni.Lodash':
+    case 'cordova.plugin.boni.lodash':
       arguments[0] = modulePath + '/../www/lib/lodash.js';
       break;
-    case 'cordova.plugin.boni.Config':
+    case 'cordova.plugin.boni.config':
       arguments[0] = modulePath + '/../www/config.js';
       break;
-    case 'cordova.plugin.boni.Beacon':
+    case 'cordova.plugin.boni.beacon':
       arguments[0] = modulePath + '/../www/model/beacon.js';
       break;
     case 'cordova.plugin.boni.аsync':
