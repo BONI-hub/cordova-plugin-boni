@@ -109,20 +109,4 @@ Beacon.prototype.getData = function(done) {
   });
 };
 
-/**
- * Parse the Beacon object and print it in the console
- */
-Beacon.prototype.toString = function() {
-  console.log(
-    'UUID:' + this.uuid +
-    ', Major: ' + this.major +
-    ', Minor: ' + this.minor +
-    ', Proximity: ' + this.proximity +
-    ', RSSI: ' + this.rssi +
-    ', Tx: ' + this.tx +
-    ', Accuracy: ' + this.accuracy +
-    ', Data: ' + this.data
-  );
-};
-
 module.exports = Beacon;

@@ -1,8 +1,8 @@
 'use strict';
 
 require('./setup.js');
-var Beacon = require('cordova.plugin.boni.beacon');
-var td = require('./test-data.js');
+var Beacon = require('cordova.plugin.boni.beacon'),
+  td = require('./test-data.js');
 
 describe("A beacon", function() {
   it("can't be created without uuid", function() {

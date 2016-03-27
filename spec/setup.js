@@ -39,3 +39,13 @@ Module.prototype.require = function() {
   }
   return originalRequire.apply(this, arguments);
 };
+
+// Mock the console object to store the output in-memory
+var console = {};
+console.stdout = '';
+console.log = function(log) {
+  console.stdout = log;
+};
+console.reset = function() {
+  console.stdout = '';
+};
