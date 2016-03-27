@@ -1,7 +1,8 @@
 'use strict';
 
-var async = require('cordova.plugin.boni.Async');
-var Everlive = require('cordova.plugin.boni.Everlive');
+var async = require('cordova.plugin.boni.аsync'),
+  Everlive = require('cordova.plugin.boni.everlive'),
+  DataProvider = require('cordova.plugin.boni.dataProvider');
 
 /**
  * Object that represent beacon and contains all its metadata
@@ -23,8 +24,7 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
    * Check whether the mandatory arguments are provided
    */
   if (!uuid || !major || !minor) {
-    console.log('Mandatory argument is not provided');
-    return;
+    throw 'Mandatory argument is not provided';
   }
 
   this.uuid = uuid.toUpperCase();
@@ -32,7 +32,7 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
   this.minor = parseInt(minor);
   this.rssi = parseInt(rssi);
   this.tx = parseInt(tx);
-  this.accuracy = accuracy;
+  this.accuracy = parseFloat(accuracy);
   this.proximity = proximity;
 }
 
@@ -41,6 +41,8 @@ function Beacon(uuid, major, minor, proximity, rssi, tx, accuracy) {
  * @param  {Function} done Callback to be called when the Content (cloud) data is retrieved
  */
 Beacon.prototype.getData = function(done) {
+
+  var dataProvider = new DataProvider();
 
   /**
    * This is because of the async scope
@@ -63,7 +65,7 @@ Beacon.prototype.getData = function(done) {
       /**
        * Determine the spot based on the signal that came from iBeacon
        */
-      cordova.plugins.dataProvider.getData(
+      dataProvider.getData(
         'Spot', query,
         callback
       );
@@ -83,7 +85,7 @@ Beacon.prototype.getData = function(done) {
         /**
          * Get the Content (cloud) data
          */
-        cordova.plugins.dataProvider.getData(
+        dataProvider.getData(
           'Content', query,
           callback
         );

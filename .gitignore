@@ -1,1 +1,4 @@
 /node_modules/
+/el_store/
+/build/
+/coverage/

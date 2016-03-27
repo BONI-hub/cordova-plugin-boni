@@ -1,5 +1,8 @@
 # cordova-plugin-boni
 
+[![Build Status](https://travis-ci.org/BONI-hub/cordova-plugin-boni.svg?branch=master)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)
+[![Test Coverage](https://codeclimate.com/github/BONI-hub/cordova-plugin-boni/badges/coverage.svg)](https://codeclimate.com/github/BONI-hub/cordova-plugin-boni/coverage)
+
 [http://boni.io](http://boni.io)
 
 The BONI platform provides a complete backend solution for your mobile application that facilitate the interaction with Bluetooth Low Energy Beacons (iBeacons).
