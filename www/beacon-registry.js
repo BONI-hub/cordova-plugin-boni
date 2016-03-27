@@ -2,8 +2,7 @@
 
 var Beacon = require('cordova.plugin.boni.beacon'),
   config = require('cordova.plugin.boni.config'),
-  _ = require('cordova.plugin.boni.lodash'),
-  beacons = []; //Array with the iBeacons in range
+  _ = require('cordova.plugin.boni.lodash');
 
 /**
  * Event callbacks
@@ -16,6 +15,8 @@ var onImmediateToSpot = null;
  * Collection of all iBeacons in range
  */
 function BeaconRegistry() {}
+
+BeaconRegistry.prototype.beacons = []; //Array with the iBeacons in range
 
 /**
  * Check whether the iBeacon defined with provided meta data is already registered
@@ -42,7 +43,7 @@ BeaconRegistry.prototype.getBeaconFromRegistry = function(uuid, major, minor) {
    * If all input arguments are valid, check whether the beacon already exists
    * in the beacon registry and return it. Otherwise undefined.
    */
-  return _.find(beacons, {
+  return _.find(this.beacons, {
     'uuid': uuid,
     'major': major,
     'minor': minor
@@ -69,23 +70,23 @@ BeaconRegistry.prototype.applyProximityStrategy = function(beacon) {
       beacon.proximity = beacon.previouseProximity;
     }
   }
+
+  function calculateProximityFactor(beacon) {
+    return parseInt(parseInt(100 * beacon.rssi - beacon.tx) / beacon.tx);
+  }
 };
 
-function calculateProximityFactor(beacon) {
-  return parseInt(parseInt(100 * beacon.rssi - beacon.tx) / beacon.tx);
-}
+BeaconRegistry.prototype.observe = function(beacon) {
 
-function callRegisteredCallback(callback, beacon) {
-  if (_.isFunction(callback) && beacon) {
-    if (beacon.data) {
-      callback(null, beacon.data);
-    } else {
-      callback('No data');
+  function callRegisteredCallback(callback, beacon) {
+    if (_.isFunction(callback) && beacon) {
+      if (beacon.data) {
+        callback(null, beacon.data);
+      } else {
+        callback('No data');
+      }
     }
   }
-}
-
-BeaconRegistry.prototype.observe = function(beacon) {
 
   var currentBeacon = this.getBeaconFromRegistry(beacon.uuid, beacon.major,
     beacon.minor);
@@ -152,7 +153,7 @@ BeaconRegistry.prototype.observe = function(beacon) {
       beacon.accuracy
     );
     this.applyProximityStrategy(currentBeacon);
-    currentBeacon.getData(add);
+    currentBeacon.getData(this.add);
   }
 };
 
@@ -161,16 +162,16 @@ BeaconRegistry.prototype.observe = function(beacon) {
  * @param  {[type]} error  error message if there is any, null if there is no errors
  * @param  {Beacon} beacon beacon object that represents beacon meatdata
  */
-function add(error, beacon) {
+BeaconRegistry.prototype.add = function(error, beacon) {
 
   if (!error) {
 
     /**
      * If there are no errors, add beacon to beacon registry
      */
-    beacons.push(beacon);
+    this.beacons.push(beacon);
   }
-}
+};
 
 /**
  * Register onImmediateToSpot callback
