@@ -22,8 +22,11 @@
   },
   "homepage": "https://github.com/BONI-hub/cordova-plugin-boni#readme",
   "devDependencies": {
-    "jasmine-node": "1.14.5",
     "node-localstorage": "1.1.2",
-    "istanbul": "0.4.2"
+    "grunt": "0.4.5",
+    "grunt-jasmine-node-coverage":"0.4.1"
+  },
+  "scripts": {
+    "test": "grunt"
   }
 }
