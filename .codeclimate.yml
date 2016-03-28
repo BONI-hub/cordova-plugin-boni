@@ -1,9 +1,5 @@
 engines:
-  golint:
-    enabled: true
   eslint:
-    enabled: true
-  csslint:
     enabled: true
   duplication:
     enabled: true
