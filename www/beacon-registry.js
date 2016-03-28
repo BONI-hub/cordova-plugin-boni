@@ -51,6 +51,14 @@ BeaconRegistry.prototype = function(){
     });
   },
 
+  clear = function(){
+    beacons = [];
+  },
+
+  size = function(){
+    return beacons.length;
+  },
+
   applyProximityStrategy = function(beacon) {
     if (beacon) {
       var proximityFactor = calculateProximityFactor(beacon);
@@ -165,9 +173,6 @@ BeaconRegistry.prototype = function(){
    */
   add = function(error, beacon) {
 
-    console.log(beacon);
-    console.log(error);
-
     if (!error) {
 
       /**
@@ -202,7 +207,8 @@ BeaconRegistry.prototype = function(){
   };
 
   return {
-    beacons: beacons,
+    clear: clear,
+    size: size,
     add: add,
     applyProximityStrategy: applyProximityStrategy,
     observe: observe,
