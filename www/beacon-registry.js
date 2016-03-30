@@ -65,16 +65,16 @@ BeaconRegistry.prototype = function(){
 
       if (proximityFactor <= config.proximity.immediate.factor) {
         beacon.proximity = config.proximity.immediate.name;
-      } else if (proximityFactor >
+      } else if (proximityFactor >=
         config.proximity.immediate.factor + config.proximity.buffer &&
         proximityFactor <= config.proximity.near.factor) {
         beacon.proximity = config.proximity.near.name;
-      } else if (proximityFactor >
+      } else if (proximityFactor >=
         config.proximity.near.factor + config.proximity.buffer) {
         beacon.proximity = config.proximity.far.name;
       } else {
         /**
-         * If the proximityFactor is in any of the buffers, keep the latest proximity
+         * If the proximityFactor is not in any of the buffers, keep the latest proximity
          */
         beacon.proximity = beacon.previouseProximity;
       }
