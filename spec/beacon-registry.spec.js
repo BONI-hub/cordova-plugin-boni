@@ -64,7 +64,7 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 106,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityImmediate');
@@ -74,7 +74,7 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 106,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityImmediate');
@@ -84,7 +84,7 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 106,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityImmediate');
@@ -99,7 +99,7 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 116,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityNear');
@@ -109,7 +109,7 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 116,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityNear');
@@ -124,9 +124,27 @@ describe("A beacon-registry", function() {
     var beaconRegistry = new BeaconRegistry();
     beaconRegistry.clear();
     var rssi = 211,
-    tx = 100;
+      tx = 100;
     var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
     beaconRegistry.applyProximityStrategy(beacon);
     expect(beacon.proximity).toEqual('ProximityFar');
+  });
+
+  it("do NOT store beacon if it does not have Content items", function() {
+    var beaconRegistry = new BeaconRegistry();
+    beaconRegistry.clear();
+    var uuid = '111-222-333',
+      major = '1',
+      minor = '2';
+    var beacon = new Beacon(uuid, major, minor, 'ProximityUnknown', 116, 100, '1.5');
+    beaconRegistry.observe(beacon);
+    expect(beaconRegistry.get(uuid, major, minor)).toEqual(null);
+  });
+
+  iit("store beacon if it has Content items", function() {
+    var beaconRegistry = new BeaconRegistry();
+    beaconRegistry.clear();
+    beaconRegistry.observe(td.registeredBeacon);
+    expect(beaconRegistry.get(td.registeredBeacon.uuid, td.registeredBeacon.major, td.registeredBeacon.minor)).toEqual(null);
   });
 });
