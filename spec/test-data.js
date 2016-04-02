@@ -8,4 +8,5 @@ module.exports = {
 
   registeredBeacon: new Beacon('1111-2222-3333-4444-5555','1','2','ProximityImmediate','20','30','5.5'),
 
+  beaconNoContent: new Beacon('1111-2222-3333-4444-5555','3','4','ProximityImmediate','20','30','5.5')
 };

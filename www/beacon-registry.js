@@ -1,6 +1,6 @@
 "use strict";
 
-var Beacon = require('cordova.plugin.boni.beacon'),
+var async = require('cordova.plugin.boni.аsync'),
   config = require('cordova.plugin.boni.config'),
   _ = require('cordova.plugin.boni.lodash');
 
@@ -51,6 +51,22 @@ BeaconRegistry.prototype = function() {
       });
     },
 
+    /**
+     * Add the beacon into beacon register
+     * @param  {[type]} error  error message if there is any, null if there is no errors
+     * @param  {Beacon} beacon beacon object that represents beacon meatdata
+     */
+    add = function(error, beacon) {
+
+      if (!error) {
+
+        /**
+         * If there are no errors, add beacon to beacon registry
+         */
+        beacons.push(beacon);
+      }
+    },
+
     clear = function() {
       beacons = [];
     },
@@ -85,19 +101,36 @@ BeaconRegistry.prototype = function() {
       }
     },
 
-    observe = function(beacon) {
+    register = function(beacon, done) {
 
-      function callRegisteredCallback(callback, beacon) {
-        if (_.isFunction(callback) && beacon) {
-          if (beacon.data) {
-            callback(null, beacon.data);
-          } else {
-            callback('No data');
+      if (beacon) {
+        applyProximityStrategy(beacon);
+
+        async.waterfall([
+          function(callback) {
+            beacon.getData(callback);
           }
-        }
+        ], function(err, beaconWithData) {
+
+          if (!err && beaconWithData && beaconWithData.data && beaconWithData.data.length > 0) {
+            add(null, beaconWithData);
+            done(beaconWithData);
+          } else {
+            done(null);
+          }
+        });
+      } else {
+        throw 'Beacon is not valid';
+      }
+    },
+
+    process = function(beacon) {
+
+      if (!beacon) {
+        throw 'Beacon is not valid';
       }
 
-      var currentBeacon = this.get(beacon.uuid, beacon.major,
+      var currentBeacon = get(beacon.uuid, beacon.major,
         beacon.minor);
       /**
        * Check whether the beacons is registered
@@ -112,7 +145,7 @@ BeaconRegistry.prototype = function() {
         currentBeacon.tx = beacon.tx;
         currentBeacon.accuracy = beacon.accuracy;
 
-        this.applyProximityStrategy(currentBeacon);
+        applyProximityStrategy(currentBeacon);
 
         if (currentBeacon.proximity) {
 
@@ -152,33 +185,15 @@ BeaconRegistry.prototype = function() {
          * If it is not registered, retrieve its data.
          * In this way only one server call is initiated to retrieve iBeacon Content (cloud) data.
          */
-        currentBeacon = new Beacon(
-          beacon.uuid,
-          beacon.major,
-          beacon.minor,
-          beacon.proximity,
-          beacon.rssi,
-          beacon.tx,
-          beacon.accuracy
-        );
-        this.applyProximityStrategy(currentBeacon);
-        currentBeacon.getData(this.add);
+        register(beacon, process);
       }
-    },
 
-    /**
-     * Add the beacon into beacon register
-     * @param  {[type]} error  error message if there is any, null if there is no errors
-     * @param  {Beacon} beacon beacon object that represents beacon meatdata
-     */
-    add = function(error, beacon) {
-
-      if (!error) {
-
-        /**
-         * If there are no errors, add beacon to beacon registry
-         */
-        beacons.push(beacon);
+      function callRegisteredCallback(callback, beacon) {
+        if (_.isFunction(callback) && beacon) {
+          if (beacon.data) {
+            callback(null, beacon.data);
+          }
+        }
       }
     },
 
@@ -210,8 +225,9 @@ BeaconRegistry.prototype = function() {
     clear: clear,
     size: size,
     add: add,
+    register: register,
     applyProximityStrategy: applyProximityStrategy,
-    observe: observe,
+    process: process,
     get: get,
     onFarFromSpot: onFarFromSpot,
     onNearToSpot: onNearToSpot,
