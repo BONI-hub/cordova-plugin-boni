@@ -1,4 +1,4 @@
-# cordova-plugin-boni
+![BONI](https://raw.githubusercontent.com/BONI-hub/boni.io/gh-pages/img/logo/logo-cordova.png)
 
 [![Build Status](https://travis-ci.org/BONI-hub/cordova-plugin-boni.svg?branch=master)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)
 [![codecov.io](https://codecov.io/github/BONI-hub/cordova-plugin-boni/coverage.svg?branch=master)](https://codecov.io/github/BONI-hub/cordova-plugin-boni?branch=master)
