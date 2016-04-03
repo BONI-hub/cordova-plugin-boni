@@ -1,7 +1,8 @@
 'use strict';
 
 require('./setup.js');
-var Beacon = require('cordova.plugin.boni.beacon'),
+var Spot = require('cordova.plugin.boni.spot'),
+  Beacon = require('cordova.plugin.boni.beacon'),
   BeaconRegistry = require('cordova.plugin.boni.beaconRegistry'),
   td = require('./test-data.js');
 
@@ -59,11 +60,11 @@ describe("A beacon-registry", function() {
     it("return beacon if try to get a beacon that is in the registry", function() {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
-      beaconRegistry.add(null, td.registeredBeacon);
-      var beacon = beaconRegistry.get(td.registeredBeacon.uuid, td.registeredBeacon.major, td.registeredBeacon.minor);
-      expect(beacon.uuid).toEqual(td.registeredBeacon.uuid);
-      expect(beacon.major).toEqual(td.registeredBeacon.major);
-      expect(beacon.minor).toEqual(td.registeredBeacon.minor);
+      beaconRegistry.add(null, new Spot(td.registeredBeacon));
+      var spot = beaconRegistry.get(td.registeredBeacon.uuid, td.registeredBeacon.major, td.registeredBeacon.minor);
+      expect(spot.getBeacon().uuid).toEqual(td.registeredBeacon.uuid);
+      expect(spot.getBeacon().major).toEqual(td.registeredBeacon.major);
+      expect(spot.getBeacon().minor).toEqual(td.registeredBeacon.minor);
     });
 
   });
@@ -75,59 +76,64 @@ describe("A beacon-registry", function() {
       beaconRegistry.clear();
       var rssi = 106,
         tx = 100;
-      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityImmediate');
+      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
+        spot = new Spot(beacon);
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
     });
 
     it("not changed if cuurent is in the buffer and previouse is immediate", function() {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       var rssi = 106,
-        tx = 100;
-      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityImmediate');
-      beacon.rssi = 111;
-      beacon.tx = 100;
-      beacon.previouseProximity = 'ProximityImmediate';
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityImmediate');
+        tx = 100,
+        beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
+        spot = new Spot(beacon);
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
+      spot.getBeacon().rssi = 111;
+      spot.getBeacon().tx = 100;
+      spot.getBeacon().previouseProximity = 'ProximityImmediate';
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
     });
 
     it("is near if the proximity factor is more than 115 and less than 200", function() {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       var rssi = 116,
-        tx = 100;
-      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityNear');
+        tx = 100,
+        beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
+        spot = new Spot(beacon);
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
     });
 
     it("not changed if cuurent is in the buffer and previouse is near", function() {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       var rssi = 116,
-        tx = 100;
-      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityNear');
-      beacon.rssi = 206;
-      beacon.tx = 100;
-      beacon.previouseProximity = 'ProximityNear';
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityNear');
+        tx = 100,
+        beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
+        spot = new Spot(beacon);
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
+      spot.getBeacon().rssi = 206;
+      spot.getBeacon().tx = 100;
+      spot.getBeacon().previouseProximity = 'ProximityNear';
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
     });
 
     it("is far if the proximity factor is more than 210", function() {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       var rssi = 211,
-        tx = 100;
-      var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5');
-      beaconRegistry.applyProximityStrategy(beacon);
-      expect(beacon.proximity).toEqual('ProximityFar');
+        tx = 100,
+        beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
+        spot = new Spot(beacon);
+      beaconRegistry.applyProximityStrategy(spot);
+      expect(spot.getBeacon().proximity).toEqual('ProximityFar');
     });
 
   });

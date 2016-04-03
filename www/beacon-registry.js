@@ -2,6 +2,7 @@
 
 var async = require('cordova.plugin.boni.аsync'),
   config = require('cordova.plugin.boni.config'),
+  Spot = require('cordova.plugin.boni.spot'),
   _ = require('cordova.plugin.boni.lodash');
 
 
@@ -11,7 +12,7 @@ var async = require('cordova.plugin.boni.аsync'),
 var BeaconRegistry = function() {};
 
 BeaconRegistry.prototype = function() {
-  var beacons = [],
+  var _spots = [],
     /**
      * Event callbacks
      */
@@ -19,24 +20,17 @@ BeaconRegistry.prototype = function() {
     _onNearToSpot = null,
     _onImmediateToSpot = null,
 
-    /**
-     * Check whether the iBeacon defined with provided meta data is already registered
-     * in the beacon registry.
-     * @param  {Beacon} beacon object that represents iBeacon metadata
-     * @return {boolean}       true if provided iBeacon is already registered in beacon registry,
-     *                         otherwise return false
-     */
+
     get = function(uuid, major, minor) {
 
       if (!uuid || !major || !minor) {
         /**
          * If beacon's major id, minor id or uuid is not defined,
-         * return beacon is not exists
+         * return spot is not exists
          */
         return;
       }
 
-      uuid = uuid.toUpperCase();
       major = parseInt(major);
       minor = parseInt(minor);
 
@@ -44,39 +38,41 @@ BeaconRegistry.prototype = function() {
        * If all input arguments are valid, check whether the beacon already exists
        * in the beacon registry and return it. Otherwise undefined.
        */
-      return _.find(beacons, {
-        'uuid': uuid,
-        'major': major,
-        'minor': minor
+      return _.find(_spots, function(spot) {
+        var beacon = spot.getBeacon();
+
+        return (
+          beacon.uuid === uuid &&
+          beacon.major === major.toString() &&
+          beacon.minor === minor.toString()
+        );
       });
     },
 
-    /**
-     * Add the beacon into beacon register
-     * @param  {[type]} error  error message if there is any, null if there is no errors
-     * @param  {Beacon} beacon beacon object that represents beacon meatdata
-     */
-    add = function(error, beacon) {
+    add = function(error, spot) {
 
       if (!error) {
 
         /**
-         * If there are no errors, add beacon to beacon registry
+         * If there are no errors, add spot to beacon registry
          */
-        beacons.push(beacon);
+        _spots.push(spot);
+
       }
     },
 
     clear = function() {
-      beacons = [];
+      _spots = [];
     },
 
     size = function() {
-      return beacons.length;
+      return _spots.length;
     },
 
-    applyProximityStrategy = function(beacon) {
-      if (beacon) {
+    applyProximityStrategy = function(spot) {
+
+      if (spot) {
+        var beacon = spot.getBeacon();
         var proximityFactor = calculateProximityFactor(beacon);
 
         if (proximityFactor <= config.proximity.immediate.factor) {
@@ -104,21 +100,28 @@ BeaconRegistry.prototype = function() {
     register = function(beacon, done) {
 
       if (beacon) {
-        applyProximityStrategy(beacon);
 
-        async.waterfall([
-          function(callback) {
-            beacon.getData(callback);
-          }
-        ], function(err, beaconWithData) {
+        var spot = new Spot(beacon);
 
-          if (!err && beaconWithData && beaconWithData.data && beaconWithData.data.length > 0) {
-            add(null, beaconWithData);
-            done(beaconWithData);
-          } else {
-            done(null);
-          }
-        });
+        if (spot) {
+          applyProximityStrategy(spot);
+
+          async.waterfall([
+            function(callback) {
+
+              spot.getData(callback);
+            }
+          ], function(err, spotWithData) {
+
+            if (!err && spotWithData && spotWithData.data && spotWithData.data.length > 0) {
+
+              add(null, spotWithData);
+              done(beacon);
+            } else {
+              done(null);
+            }
+          });
+        }
       } else {
         throw 'Beacon is not valid';
       }
@@ -130,22 +133,24 @@ BeaconRegistry.prototype = function() {
         throw 'Beacon is not valid';
       }
 
-      var currentBeacon = get(beacon.uuid, beacon.major,
+      var spot = get(beacon.uuid, beacon.major,
         beacon.minor);
+
       /**
-       * Check whether the beacons is registered
+       * Check whether the spots is registered
        */
-      if (currentBeacon) {
+      if (spot) {
 
         /**
          * Update iBeacon metadata
          */
+        var currentBeacon = spot.getBeacon();
         currentBeacon.proximity = beacon.proximity;
         currentBeacon.rssi = beacon.rssi;
         currentBeacon.tx = beacon.tx;
         currentBeacon.accuracy = beacon.accuracy;
 
-        applyProximityStrategy(currentBeacon);
+        applyProximityStrategy(spot);
 
         if (currentBeacon.proximity) {
 
@@ -166,13 +171,13 @@ BeaconRegistry.prototype = function() {
              */
             switch (currentBeacon.proximity) {
               case config.proximity.immediate.name:
-                callRegisteredCallback(_onImmediateToSpot, currentBeacon);
+                callRegisteredCallback(_onImmediateToSpot, spot);
                 break;
               case config.proximity.near.name:
-                callRegisteredCallback(_onNearToSpot, currentBeacon);
+                callRegisteredCallback(_onNearToSpot, spot);
                 break;
               case config.proximity.far.name:
-                callRegisteredCallback(_onFarFromSpot, currentBeacon);
+                callRegisteredCallback(_onFarFromSpot, spot);
                 break;
               default:
 
@@ -188,10 +193,11 @@ BeaconRegistry.prototype = function() {
         register(beacon, process);
       }
 
-      function callRegisteredCallback(callback, beacon) {
-        if (_.isFunction(callback) && beacon) {
-          if (beacon.data) {
-            callback(null, beacon.data);
+      function callRegisteredCallback(callback, spot) {
+
+        if (_.isFunction(callback) && spot) {
+          if (spot.data) {
+            callback(null, spot.data);
           }
         }
       }

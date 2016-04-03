@@ -20,6 +20,9 @@ Module.prototype.require = function() {
     case 'cordova.plugin.boni.config':
       arguments[0] = modulePath + '/test-config.js';
       break;
+    case 'cordova.plugin.boni.spot':
+      arguments[0] = modulePath + '/../www/model/spot.js';
+      break;
     case 'cordova.plugin.boni.beacon':
       arguments[0] = modulePath + '/../www/model/beacon.js';
       break;

@@ -7,6 +7,9 @@
   <js-module name="config" src="www/config.js">
     <runs/>
   </js-module>
+  <js-module name="spot" src="www/model/spot.js">
+    <runs/>
+  </js-module>
   <js-module name="beacon" src="www/model/beacon.js">
     <runs/>
   </js-module>

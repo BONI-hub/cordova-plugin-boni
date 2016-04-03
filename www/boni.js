@@ -26,7 +26,7 @@ Boni.prototype.ranging = function() {
     if (pluginResult && pluginResult.beacons) {
       for (var beaconIdx = 0; beaconIdx < pluginResult.beacons.length; beaconIdx++) {
         var currentBeacon = pluginResult.beacons[beaconIdx];
-        beaconRegistry.observe(currentBeacon);
+        beaconRegistry.process(currentBeacon);
       }
     }
   };

@@ -1,10 +1,10 @@
 'use strict';
 
 require('./setup.js');
-var Beacon = require('cordova.plugin.boni.beacon'),
-  td = require('./test-data.js');
+var Beacon = require('cordova.plugin.boni.beacon');
 
 describe("A beacon", function() {
+
   it("can't be created without uuid", function() {
     expect(function() {
       new Beacon(null, '1', '2', 'ProximityImmediate', '20', '30', '5.5');
@@ -24,58 +24,50 @@ describe("A beacon", function() {
   });
 
   it("store UUID in upper case", function() {
-    expect(td.notRegisteredBeacon.uuid).toEqual(td.notRegisteredBeacon.uuid.toUpperCase());
+    var uuid = 'aaa-bbb-ccc',
+      beacon = new Beacon(uuid, '1', '2', 'ProximityImmediate', '20', '30', '5.5');
+    expect(beacon.uuid).toEqual(uuid.toUpperCase());
   });
 
   it("store major ID as integer", function() {
-    expect(td.notRegisteredBeacon.major).toEqual(parseInt(td.notRegisteredBeacon.major));
-    expect(typeof(td.notRegisteredBeacon.major)).toEqual('number');
+    var majorId = '1',
+      beacon = new Beacon('aaa-bbb-ccc', majorId, '2', 'ProximityImmediate', '20', '30', '5.5');
+    expect(beacon.major).toEqual(parseInt(majorId));
+    expect(typeof(beacon.major)).toEqual('number');
   });
 
   it("store minor ID as integer", function() {
-    expect(td.notRegisteredBeacon.minor).toEqual(parseInt(td.notRegisteredBeacon.minor));
-    expect(typeof(td.notRegisteredBeacon.minor)).toEqual('number');
+    var minorId = '2',
+      beacon = new Beacon('aaa-bbb-ccc', '1', minorId, 'ProximityImmediate', '20', '30', '5.5');
+    expect(beacon.minor).toEqual(parseInt(minorId));
+    expect(typeof(beacon.minor)).toEqual('number');
   });
 
   it("store proximity as string", function() {
-    expect(td.notRegisteredBeacon.proximity).toEqual(td.notRegisteredBeacon.proximity);
-    expect(typeof(td.notRegisteredBeacon.proximity)).toEqual('string');
+    var proximity = 'ProximityImmediate',
+      beacon = new Beacon('aaa-bbb-ccc', '1', '2', proximity, '20', '30', '5.5');
+    expect(beacon.proximity).toEqual(beacon.proximity);
+    expect(typeof(beacon.proximity)).toEqual('string');
   });
 
   it("store rssi as integer", function() {
-    expect(td.notRegisteredBeacon.rssi).toEqual(parseInt(td.notRegisteredBeacon.rssi));
-    expect(typeof(td.notRegisteredBeacon.rssi)).toEqual('number');
+    var rssi = '20',
+      beacon = new Beacon('aaa-bbb-ccc', '1', '2', 'ProximityImmediate', rssi, '30', '5.5');
+    expect(beacon.rssi).toEqual(parseInt(rssi));
+    expect(typeof(beacon.rssi)).toEqual('number');
   });
 
   it("store tx as integer", function() {
-    expect(td.notRegisteredBeacon.tx).toEqual(parseInt(td.notRegisteredBeacon.tx));
-    expect(typeof(td.notRegisteredBeacon.tx)).toEqual('number');
+    var tx = '30',
+      beacon = new Beacon('aaa-bbb-ccc', '1', '2', 'ProximityImmediate', '20', tx, '5.5');
+    expect(beacon.tx).toEqual(parseInt(tx));
+    expect(typeof(beacon.tx)).toEqual('number');
   });
 
   it("store accuracy as integer", function() {
-    expect(td.notRegisteredBeacon.accuracy).toEqual(parseFloat(td.notRegisteredBeacon.accuracy));
-    expect(typeof(td.notRegisteredBeacon.accuracy)).toEqual('number');
-  });
-
-  it("return 'No spots' error message if there is no content (cloud) data attached", function(done) {
-    function dataReceived(err) {
-      expect(err).toEqual('No spots');
-      done();
-    }
-    td.notRegisteredBeacon.getData(dataReceived);
-  });
-
-  //This test is based on the existance of real data in Local BONI environment
-  it("return content (cloud) data if there is one already attached", function(done) {
-    function dataReceived(err, result) {
-      expect(err).toEqual(null);
-      expect(result.data.length).toEqual(1); // There is 1 content item attached to Spot
-      expect(result.data[0].name).toEqual('Test Content [do not delete]');
-      expect(result.data[0].description).toEqual('Test Description');
-      expect(result.data[0].data.url).toEqual('http://boni.io');
-      expect(result.data[0].data.imageUrl).toEqual('http://image.io');
-      done();
-    }
-    td.registeredBeacon.getData(dataReceived);
+    var accuracy = '5.5',
+      beacon = new Beacon('aaa-bbb-ccc', '1', '2', 'ProximityImmediate', '20', '30', accuracy);
+    expect(beacon.accuracy).toEqual(parseFloat(accuracy));
+    expect(typeof(beacon.accuracy)).toEqual('number');
   });
 });
