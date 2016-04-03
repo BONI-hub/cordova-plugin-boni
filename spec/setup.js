@@ -18,7 +18,10 @@ Module.prototype.require = function() {
       arguments[0] = modulePath + '/../www/lib/lodash.js';
       break;
     case 'cordova.plugin.boni.config':
-      arguments[0] = modulePath + '/../www/config.js';
+      arguments[0] = modulePath + '/test-config.js';
+      break;
+    case 'cordova.plugin.boni.spot':
+      arguments[0] = modulePath + '/../www/model/spot.js';
       break;
     case 'cordova.plugin.boni.beacon':
       arguments[0] = modulePath + '/../www/model/beacon.js';

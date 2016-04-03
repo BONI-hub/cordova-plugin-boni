@@ -7,14 +7,21 @@ function DataProvider() {
   this.provider = new Everlive(config.apikey);
 }
 
-DataProvider.prototype.getData = function(type, query, callback) {
-  var currentType = this.provider.data(type);
-  currentType.get(query, function(data) {
-    callback(null, data);
-  }, function(err) {
-    console.error(err.message);
-    callback(err.message);
-  });
-};
+DataProvider.prototype = function() {
+
+  var getData = function(type, query, callback) {
+    var currentType = this.provider.data(type);
+    currentType.get(query, function(data) {
+      callback(null, data);
+    }, function(err) {
+      console.error(err.message);
+      callback(err.message);
+    });
+  };
+
+  return {
+    getData: getData
+  };
+}();
 
 module.exports = DataProvider;
