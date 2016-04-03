@@ -42,9 +42,9 @@ BeaconRegistry.prototype = function() {
         var beacon = spot.getBeacon();
 
         return (
-          beacon.uuid === uuid &&
-          beacon.major === major.toString() &&
-          beacon.minor === minor.toString()
+          beacon.uuid == uuid &&
+          beacon.major == major &&
+          beacon.minor == minor
         );
       });
     },
