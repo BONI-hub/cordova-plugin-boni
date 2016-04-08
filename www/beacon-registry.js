@@ -130,7 +130,7 @@ BeaconRegistry.prototype = function() {
     process = function(beacon) {
 
       if (!beacon) {
-        throw 'Beacon is not valid';
+        return;
       }
 
       var spot = get(beacon.uuid, beacon.major,

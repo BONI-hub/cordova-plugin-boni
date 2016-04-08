@@ -181,13 +181,6 @@ describe("A beacon-registry", function() {
 
   describe("process", function() {
 
-    it("throw exception if beacon is not defined", function() {
-      var beaconRegistry = new BeaconRegistry();
-      expect(function() {
-        beaconRegistry.process(null);
-      }).toThrow(new Error('Beacon is not valid'));
-    });
-
     it("call onImmediateToSpot if the beacon is immediate and has corresponding spot and content", function(done) {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
