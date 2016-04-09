@@ -2,22 +2,6 @@
 
 //process.env.CONFIG = 'config/config.test.js';
 module.exports = function(grunt) {
-    grunt.registerTask('config', 'Set environment configurations.', function(env) {
-        switch (env) {
-            case 'local':
-                grunt.option('config','config/config.local.js');
-                break;
-            case 'test':
-                grunt.option('config','config/config.test.js');
-                break;
-            case 'live':
-                grunt.option('config','config/config.live.js');
-                break;
-            default:
-                console.log('Environment is not defined!');
-        }
-        console.log(grunt.option('config'));
-    });
 
     grunt.initConfig({
         jasmine_node: {
@@ -45,8 +29,16 @@ module.exports = function(grunt) {
         },
 
         copy: {
-            config: {
-                src: grunt.option('config'),
+            local: {
+                src: 'config/config.local.js',
+                dest: 'www/config.js'
+            },
+            test: {
+                src: 'config/config.test.js',
+                dest: 'www/config.js'
+            },
+            live: {
+                src: 'config/config.live.js',
                 dest: 'www/config.js'
             }
         }
@@ -57,7 +49,7 @@ module.exports = function(grunt) {
     grunt.loadNpmTasks('grunt-contrib-copy');
 
     grunt.registerTask('default', 'jasmine_node');
-    grunt.registerTask('local', ['config:local'], 'copy:config');
-    grunt.registerTask('test', ['config:test', 'copy:config']);
-    grunt.registerTask('live', ['config:live', 'copy:config']);
+    grunt.registerTask('local', ['copy:local']);
+    grunt.registerTask('test', ['copy:test']);
+    grunt.registerTask('live', ['copy:live']);
 };
