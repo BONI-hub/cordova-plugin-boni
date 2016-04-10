@@ -63,7 +63,7 @@ Spot.prototype = function() {
           /**
            * If there is a spot for this iBeacon
            */
-          if (spot.result.length > 0) {
+          if (spot && spot.result && spot.result.length > 0) {
 
             /**
              * Prepare a query that filter the Content items by spotId
