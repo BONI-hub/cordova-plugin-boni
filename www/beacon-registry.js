@@ -118,6 +118,7 @@ BeaconRegistry.prototype = function() {
               add(null, spotWithData);
               done(beacon);
             } else {
+              add(null, spot);
               done(null);
             }
           });
