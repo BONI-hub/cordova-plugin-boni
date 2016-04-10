@@ -1,6 +1,5 @@
 'use strict';
 
-//process.env.CONFIG = 'config/config.test.js';
 module.exports = function(grunt) {
 
     grunt.initConfig({
