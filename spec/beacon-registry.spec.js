@@ -147,22 +147,13 @@ describe("A beacon-registry", function() {
       }).toThrow(new Error('Beacon is not valid'));
     });
 
-    it("do not register beacon if beacon has no corresponding spot", function(done) {
+    //This is needed to decrease the number of requests to server
+    it("register beacon even it has no corresponding spot", function(done) {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       expect(beaconRegistry.size()).toEqual(0);
       beaconRegistry.register(td.notRegisteredBeacon, function() {
-        expect(beaconRegistry.size()).toEqual(0);
-        done();
-      });
-    });
-
-    it("do not register beacon if beacon has corresponding spot but no conent", function(done) {
-      var beaconRegistry = new BeaconRegistry();
-      beaconRegistry.clear();
-      expect(beaconRegistry.size()).toEqual(0);
-      beaconRegistry.register(td.beaconNoContent, function() {
-        expect(beaconRegistry.size()).toEqual(0);
+        expect(beaconRegistry.size()).toEqual(1);
         done();
       });
     });

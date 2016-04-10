@@ -19,6 +19,7 @@ BeaconRegistry.prototype = function() {
     _onFarFromSpot = null,
     _onNearToSpot = null,
     _onImmediateToSpot = null,
+    _onAlwaysForSpot = null,
 
 
     get = function(uuid, major, minor) {
@@ -162,6 +163,8 @@ BeaconRegistry.prototype = function() {
           if (!currentBeacon.previouseProximity || currentBeacon.proximity !==
             currentBeacon.previouseProximity) {
 
+              callRegisteredCallback(_onAlwaysForSpot, spot);
+
             /**
              * update the previouse proximity
              */
@@ -226,6 +229,10 @@ BeaconRegistry.prototype = function() {
      */
     onFarFromSpot = function(callback) {
       _onFarFromSpot = callback;
+    },
+
+    onAlwaysForSpot = function(callback) {
+      _onAlwaysForSpot = callback;
     };
 
   return {
@@ -238,7 +245,8 @@ BeaconRegistry.prototype = function() {
     get: get,
     onFarFromSpot: onFarFromSpot,
     onNearToSpot: onNearToSpot,
-    onImmediateToSpot: onImmediateToSpot
+    onImmediateToSpot: onImmediateToSpot,
+    onAlwaysForSpot: onAlwaysForSpot
   };
 }();
 
