@@ -18,6 +18,10 @@ Boni.prototype.onFarFromSpot = function(callback) {
   beaconRegistry.onFarFromSpot(callback);
 };
 
+Boni.prototype.onAlwaysForSpot = function(callback) {
+  beaconRegistry.onAlwaysForSpot(callback);
+};
+
 Boni.prototype.ranging = function() {
 
   var delegate = new cordova.plugins.locationManager.Delegate();
