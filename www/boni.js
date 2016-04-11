@@ -22,6 +22,14 @@ Boni.prototype.onAlwaysForSpot = function(callback) {
   beaconRegistry.onAlwaysForSpot(callback);
 };
 
+Boni.prototype.register = function(uuid) {
+  if(!uuid){
+    return;
+  }
+
+  config.uuid.push(uuid);
+};
+
 Boni.prototype.ranging = function() {
 
   var delegate = new cordova.plugins.locationManager.Delegate();
