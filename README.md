@@ -47,7 +47,7 @@ onDeviceReady: function() {
   app.receivedEvent('deviceready');
 
   cordova.plugins.boni.configure({
-    uuid: ['fda50693-a4e2-4fb1-afcf-c6eb07647825']
+    uuid: ['your-ibeacon-uuid']
   });
 
   cordova.plugins.boni.ranging();
