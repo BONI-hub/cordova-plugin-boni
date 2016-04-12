@@ -1,6 +1,6 @@
 {
   "name": "cordova-plugin-boni",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Cordova Boni Plugin",
   "cordova": {
     "id": "cordova.plugin.boni",
