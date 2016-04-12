@@ -2,6 +2,7 @@
 
 var config = require('cordova.plugin.boni.config'),
   BeaconRegistry = require('cordova.plugin.boni.beaconRegistry'),
+  _ = require('cordova.plugin.boni.lodash'),
   beaconRegistry = new BeaconRegistry();
 
 function Boni() {}
@@ -22,12 +23,16 @@ Boni.prototype.onAlwaysForSpot = function(callback) {
   beaconRegistry.onAlwaysForSpot(callback);
 };
 
-Boni.prototype.register = function(uuid) {
-  if(!uuid){
+Boni.prototype.configure = function(configObj) {
+  if(!configObj){
     return;
   }
 
-  config.uuid.push(uuid);
+  if(configObj.uuid && _.isArray(configObj.uuid)){
+    for(var idx = 0; idx < configObj.uuid.length; idx++){
+      config.uuid.push(configObj.uuid[idx]);
+    }
+  }
 };
 
 Boni.prototype.ranging = function() {
