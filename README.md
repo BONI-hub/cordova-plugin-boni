@@ -19,3 +19,57 @@ BONI Console is a lightweight Content Management System that helps you to organi
 Our goal is to enable developers to start create smarter mobile apps with no need for writing server code or maintaining servers.
 
 Our SDK is ready to use out of the box with minimal configuration on your part.
+
+# Supported Platforms
+
+- Android
+- iOS
+
+# Installation
+As a Cordova plugin, BONI SDK can be installed with the next command:
+
+```
+Latest Stable Version:
+cordova plugin add cordova-plugin-boni
+```
+```
+Development Version:
+cordova plugin add https://github.com/BONI-hub/cordova-plugin-boni.git
+```
+
+See also:
+
+* [Add Plugins][add-plugins]
+
+# Sample
+```
+onDeviceReady: function() {
+  app.receivedEvent('deviceready');
+
+  cordova.plugins.boni.configure({
+    uuid: ['fda50693-a4e2-4fb1-afcf-c6eb07647825']
+  });
+
+  cordova.plugins.boni.ranging();
+
+  cordova.plugins.boni.onAlwaysForSpot(function(error, beacons) {
+    console.log("Always");
+    document.body.style.background = "purple";
+  });
+  cordova.plugins.boni.onImmediateToSpot(function(error,beacons) {
+      console.log("Immediate");
+      document.body.style.background = "green";
+  });
+  cordova.plugins.boni.onNearToSpot(function(error, beacons) {
+      console.log("NEAR");
+      document.body.style.background = "red";
+  });
+  cordova.plugins.boni.onFarFromSpot(function(error, beacons) {
+      console.log("FAR");
+      document.body.style.background = "blue";
+  });
+}
+```
+
+
+[add-plugins]: https://cordova.apache.org/docs/en/6.x/guide/cli/index.html#add-plugins
