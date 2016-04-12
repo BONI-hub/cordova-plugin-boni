@@ -70,6 +70,9 @@ onDeviceReady: function() {
   });
 }
 ```
+See also:
 
+* [Documentation][documentation]
 
 [add-plugins]: https://cordova.apache.org/docs/en/6.x/guide/cli/index.html#add-plugins
+[documentation]: http://boni.io/docs/
