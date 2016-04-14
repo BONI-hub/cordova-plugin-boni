@@ -22,5 +22,6 @@
     "el_store",
     "build",
     "coverage"
-  ]
+  ],
+  "version": "0.0.5"
 }
