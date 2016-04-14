@@ -1,0 +1,27 @@
+{
+  "name": "cordova-plugin-boni",
+  "description": "Cordova Boni Plugin",
+  "main": "",
+  "authors": [
+    "BONI Team"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "cordova",
+    "boni",
+    "ecosystem:cordova"
+  ],
+  "homepage": "https://github.com/BONI-hub/cordova-plugin-boni",
+  "moduleType": [],
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests",
+    "node_modules",
+    "el_store",
+    "build",
+    "coverage"
+  ]
+}
