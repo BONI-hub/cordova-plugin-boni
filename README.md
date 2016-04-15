@@ -1,6 +1,8 @@
 ![BONI](https://raw.githubusercontent.com/BONI-hub/boni.io/gh-pages/img/logo/logo-cordova.png)
 
-[![Travis](https://img.shields.io/travis/BONI-hub/cordova-plugin-boni.svg)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)[![Codecov](https://img.shields.io/codecov/c/github/BONI-hub/cordova-plugin-boni/master.svg)](https://codecov.io/github/BONI-hub/cordova-plugin-boni?branch=master)[![npm](https://img.shields.io/npm/v/cordova-plugin-boni.svg)](https://www.npmjs.com/package/cordova-plugin-boni)
+[![Travis](https://img.shields.io/travis/BONI-hub/cordova-plugin-boni.svg)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)
+[![Codecov](https://img.shields.io/codecov/c/github/BONI-hub/cordova-plugin-boni/master.svg)](https://codecov.io/github/BONI-hub/cordova-plugin-boni?branch=master)
+[![npm](https://img.shields.io/npm/v/cordova-plugin-boni.svg)](https://www.npmjs.com/package/cordova-plugin-boni)
 
 [http://boni.io](http://boni.io)
 
