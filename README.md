@@ -1,11 +1,12 @@
 ![BONI](https://raw.githubusercontent.com/BONI-hub/boni.io/gh-pages/img/logo/logo-cordova.png)
 
-[![Travis](https://img.shields.io/travis/BONI-hub/cordova-plugin-boni.svg)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)
-[![Codecov](https://img.shields.io/codecov/c/github/BONI-hub/cordova-plugin-boni/master.svg)](https://codecov.io/github/BONI-hub/cordova-plugin-boni?branch=master)
+[![Travis](https://img.shields.io/travis/BONI-hub/cordova-plugin-boni.svg)](https://travis-ci.org/BONI-hub/cordova-plugin-boni)[![Codecov](https://img.shields.io/codecov/c/github/BONI-hub/cordova-plugin-boni/master.svg)](https://codecov.io/github/BONI-hub/cordova-plugin-boni?branch=master)[![npm](https://img.shields.io/npm/v/cordova-plugin-boni.svg)](https://www.npmjs.com/package/cordova-plugin-boni)
 
 [http://boni.io](http://boni.io)
 
-# Overview
+Overview
+========
+
 The BONI platform provides a complete backend solution for your mobile application that facilitate the interaction with Bluetooth Low Energy Beacons (iBeacons).
 
 Once you install the BONI SDK, your mobile app will be able to detect Bluetooth Low Energy Beacons. Once the beacon has been detected, the BONI SDK gets the payload that receive from it and send it to BONI Server that exchange the beacon payload for predefined content and send it back to the mobile app.
@@ -20,18 +21,22 @@ Our goal is to enable developers to start create smarter mobile apps with no nee
 
 Our SDK is ready to use out of the box with minimal configuration on your part.
 
-# Supported Platforms
+Supported Platforms
+===================
 
-- Android
-- iOS
+-	Android
+-	iOS
 
-# Installation
+Installation
+============
+
 As a Cordova plugin, BONI SDK can be installed with the next command:
 
 ```
 Latest Stable Version:
 cordova plugin add cordova-plugin-boni
 ```
+
 ```
 Development Version:
 cordova plugin add https://github.com/BONI-hub/cordova-plugin-boni.git
@@ -39,9 +44,11 @@ cordova plugin add https://github.com/BONI-hub/cordova-plugin-boni.git
 
 See also:
 
-* [Add Plugins][add-plugins]
+-	[Add Plugins](https://cordova.apache.org/docs/en/6.x/guide/cli/index.html#add-plugins)
 
-# Sample
+Sample
+======
+
 ```
 onDeviceReady: function() {
   app.receivedEvent('deviceready');
@@ -70,9 +77,7 @@ onDeviceReady: function() {
   });
 }
 ```
+
 See also:
 
-* [Documentation][documentation]
-
-[add-plugins]: https://cordova.apache.org/docs/en/6.x/guide/cli/index.html#add-plugins
-[documentation]: http://boni.io/docs/
+-	[Documentation](http://boni.io/docs/)
