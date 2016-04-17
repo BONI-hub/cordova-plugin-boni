@@ -65,13 +65,15 @@ Spot.prototype = function() {
            */
           if (spot && spot.result && spot.result.length > 0) {
 
+            var currentSpot = spot.result[0];
+
             /**
              * Prepare a query that filter the Content items by spotId
              */
             var query = new Everlive.Query();
 
             // Assume that beacon:spot = 1:1
-            query.where().eq('spotId', spot.result[0].Id);
+            query.where().eq('spotId', currentSpot.Id);
 
             /**
              * Get the Content (cloud) data

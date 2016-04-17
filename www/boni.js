@@ -33,6 +33,13 @@ Boni.prototype.configure = function(configObj) {
             config.uuid.push(configObj.uuid[idx]);
         }
     }
+
+    if (configObj.analytics) {
+        config.analytics = configObj.analytics;
+
+        // set the tracking id
+        window.analytics.startTrackerWithId(config.analytics);
+    }
 };
 
 Boni.prototype.ranging = function() {

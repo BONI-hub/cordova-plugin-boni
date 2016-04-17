@@ -7,6 +7,7 @@ module.exports = {
 	],
 	identifier: 'BoniBeacon',
 	apikey: 'jvnpnqqa76sfbdrf', //live
+	analytics: '',
 	proximity: {
 		immediate: {
 			name: 'ProximityImmediate',

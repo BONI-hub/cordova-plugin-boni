@@ -32,4 +32,5 @@
     <merges target="cordova.plugins"/>
   </js-module>
   <dependency id="com.unarin.cordova.beacon" url="https://github.com/petermetz/cordova-plugin-ibeacon"/>
+  <dependency id="cordova-plugin-google-analytics" url="https://github.com/danwilson/google-analytics-plugin.git"/>
 </plugin>

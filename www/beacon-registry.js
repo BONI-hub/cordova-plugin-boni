@@ -59,6 +59,16 @@ BeaconRegistry.prototype = function() {
          */
         _spots.push(spot);
 
+        console.log(JSON.stringify(spot));
+        var currentSpotInfo = spot._beacon;
+        window.analytics.trackEvent('Spot', currentSpotInfo.uuid + '/' + currentSpotInfo.major + '/' + currentSpotInfo.minor);
+
+        if(spot.data){
+          for(var i = 0; i < spot.data.length; i++){
+            var content = spot.data[i];
+            window.analytics.trackEvent('Content', content.Id + '/' + content.name);
+          }
+        }
       }
     },
 
