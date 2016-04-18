@@ -158,7 +158,7 @@ describe("A beacon-registry", function() {
       });
     });
 
-    it("register beacon if beacon has corresponding spot and conent", function(done) {
+    it("register beacon if beacon has corresponding spot and content", function(done) {
       var beaconRegistry = new BeaconRegistry();
       beaconRegistry.clear();
       expect(beaconRegistry.size()).toEqual(0);
