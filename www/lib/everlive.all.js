@@ -1,3 +1,29 @@
+/*
+The MIT License (MIT)
+
+Copyright (c) 2013 Telerik AD
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.y distributed under the MIT license.
+
+Everlive SDK Version: 1.6.9
+*/
+
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Everlive = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -588,7 +614,9 @@ function drainQueue() {
         currentQueue = queue;
         queue = [];
         while (++queueIndex < len) {
-            currentQueue[queueIndex].run();
+            if (currentQueue) {
+                currentQueue[queueIndex].run();
+            }
         }
         queueIndex = -1;
         len = queue.length;
@@ -640,7 +668,6 @@ process.binding = function (name) {
     throw new Error('process.binding is not supported');
 };
 
-// TODO(shtylman)
 process.cwd = function () { return '/' };
 process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
@@ -2127,10 +2154,11 @@ module.exports = function (value, replacer, space) {
 
 
 },{}],12:[function(require,module,exports){
-// Mingo.js 0.4.0
+// Mingo.js 0.6.2
 // Copyright (c) 2015 Francis Asante <kofrasa@gmail.com>
 // MIT
 
+;
 (function (root, undefined) {
 
   "use strict";
@@ -2138,6 +2166,8 @@ module.exports = function (value, replacer, space) {
   // global on the server, window in the browser
   var Mingo = {}, previousMingo;
   var _;
+
+  Mingo.VERSION = '0.6.2';
 
   // backup previous Mingo
   if (root != null) {
@@ -2158,10 +2188,8 @@ module.exports = function (value, replacer, space) {
 
   // Export the Mingo object for Node.js
   if (nodeEnabled || nativeScriptEnabled || browserifyEnabled) {
-    if (typeof module !== 'undefined' && module.exports) {
-      exports = module.exports = Mingo;
-    } else {
-      exports = Mingo;
+    if (typeof module !== 'undefined') {
+      module.exports = Mingo;
     }
     _ = require("underscore"); // get a reference to underscore
   } else {
@@ -2174,21 +2202,31 @@ module.exports = function (value, replacer, space) {
     _.isString, _.isBoolean, _.isNumber, _.isDate, _.isNull, _.isRegExp
   ];
 
-  function normalize(expr) {
-    // normalized primitives
+  function isPrimitive(value) {
     for (var i = 0; i < primitives.length; i++) {
-      if (primitives[i](expr)) {
-        if (_.isRegExp(expr)) {
-          return {"$regex": expr};
-        } else {
-          return {"$eq": expr};
-        }
+      if (primitives[i](value)) {
+        return true;
       }
     }
+    return false;
+  }
+
+  /**
+   * Simplify expression for easy evaluation with query operators map
+   * @param expr
+   * @returns {*}
+   */
+  function normalize(expr) {
+
+    // normalized primitives
+    if (isPrimitive(expr)) {
+      return _.isRegExp(expr) ? {"$regex": expr} : {"$eq": expr};
+    }
+
     // normalize object expression
     if (_.isObject(expr)) {
       var keys = _.keys(expr);
-      var notQuery = _.intersection(Ops.queryOperators, keys).length === 0;
+      var notQuery = _.intersection(ops(OP_QUERY), keys).length === 0;
 
       // no valid query operator found, so we do simple comparison
       if (notQuery) {
@@ -2273,21 +2311,11 @@ module.exports = function (value, replacer, space) {
     },
 
     _processOperator: function (field, operator, value) {
-      var compiledSelector;
-      if (_.contains(Ops.simpleOperators, operator)) {
-        compiledSelector = {
-          test: function (obj) {
-            var actualValue = resolve(obj, field);
-            // value of operator must already be fully resolved.
-            return simpleOperators[operator](actualValue, value);
-          }
-        };
-      } else if (_.contains(Ops.compoundOperators, operator)) {
-        compiledSelector = compoundOperators[operator](field, value);
+      if (_.contains(ops(OP_QUERY), operator)) {
+        this._compiled.push(queryOperators[operator](field, value));
       } else {
         throw new Error("Invalid query operator '" + operator + "' detected");
       }
-      this._compiled.push(compiledSelector);
     },
 
     /**
@@ -2573,14 +2601,16 @@ module.exports = function (value, replacer, space) {
         // run aggregation pipeline
         for (var i = 0; i < this._operators.length; i++) {
           var operator = this._operators[i];
-          for (var key in operator) {
-            if (operator.hasOwnProperty(key)) {
-              if (query instanceof Mingo.Query) {
-                collection = pipelineOperators[key].call(query, collection, operator[key]);
-              } else {
-                collection = pipelineOperators[key](collection, operator[key]);
-              }
+          var key = _.keys(operator);
+          if (key.length == 1 && _.contains(ops(OP_PIPELINE), key[0])) {
+            key = key[0];
+            if (query instanceof Mingo.Query) {
+              collection = pipelineOperators[key].call(query, collection, operator[key]);
+            } else {
+              collection = pipelineOperators[key](collection, operator[key]);
             }
+          } else {
+            throw new Error("Invalid aggregation operator '" + key + "'");
           }
         }
       }
@@ -2619,9 +2649,7 @@ module.exports = function (value, replacer, space) {
       if (isText && _.isArray(value)) {
         var res = [];
         _.each(value, function (item) {
-          if (_.isObject(item)) {
-            res.push(resolve(item, names[i]));
-          }
+          res.push(resolve(item, names[i]));
         });
         value = res;
       } else {
@@ -2665,9 +2693,92 @@ module.exports = function (value, replacer, space) {
    */
   Mingo.aggregate = function (collection, pipeline) {
     if (!_.isArray(pipeline)) {
-      throw new Error("Aggregation pipeline must be an array")
+      throw new Error("Aggregation pipeline must be an array");
     }
     return (new Mingo.Aggregator(pipeline)).run(collection);
+  };
+
+  /**
+   * Add new operators
+   * @param type the operator type to extend
+   * @param f a function returning an object of new operators
+   */
+  Mingo.addOperators = function (type, f) {
+    var newOperators = f({
+      resolve: resolve,
+      computeValue: computeValue,
+      ops: ops,
+      key: function () {
+        return settings.key;
+      }
+    });
+
+    // ensure correct type specified
+    if (!_.contains([OP_AGGREGATE, OP_GROUP, OP_PIPELINE, OP_PROJECTION, OP_QUERY], type)) {
+      throw new Error("Could not identify type '" + type + "'");
+    }
+
+    var operators = ops(type);
+
+    // check for existing operators
+    _.each(_.keys(newOperators), function (op) {
+      if (!/^\$\w+$/.test(op)) {
+        throw new Error("Invalid operator name '" + op + "'");
+      }
+      if (_.contains(operators, op)) {
+        throw new Error("Operator " + op + " is already defined for " + type + " operators");
+      }
+    });
+
+    var wrapped = {};
+
+    switch (type) {
+      case OP_QUERY:
+        _.each(_.keys(newOperators), function (op) {
+          wrapped[op] = (function (f, ctx) {
+            return function (selector, value) {
+              return {
+                test: function (obj) {
+                  // value of field must be fully resolved.
+                  var lhs = resolve(obj, selector);
+                  var result = f.call(ctx, selector, lhs, value);
+                  if (_.isBoolean(result)) {
+                    return result;
+                  } else if (result instanceof Mingo.Query) {
+                    return result.test(obj);
+                  } else {
+                    throw new Error("Invalid return type for '" + op + "'. Must return a Boolean or Mingo.Query");
+                  }
+                }
+              };
+            }
+          }(newOperators[op], newOperators));
+        });
+        break;
+      case OP_PROJECTION:
+        _.each(_.keys(newOperators), function (op) {
+          wrapped[op] = (function (f, ctx) {
+            return function (obj, expr, selector) {
+              var lhs = resolve(obj, selector);
+              return f.call(ctx, selector, lhs, expr);
+            }
+          }(newOperators[op], newOperators));
+        });
+        break;
+      default:
+        _.each(_.keys(newOperators), function (op) {
+          wrapped[op] = (function (f, ctx) {
+            return function () {
+              var args = Array.prototype.slice.call(arguments);
+              return f.apply(ctx, args);
+            }
+          }(newOperators[op], newOperators));
+        });
+    }
+
+    // toss the operator salad :)
+    _.extend(OPERATORS[type], wrapped);
+
   };
 
   /**
@@ -2707,28 +2818,28 @@ module.exports = function (value, replacer, space) {
     $group: function (collection, expr) {
       // lookup key for grouping
       var idKey = expr[settings.key];
-      var indexes = [];
-      // group collection by key
-      var groups = _.groupBy(collection, function (obj) {
-        var key = computeValue(obj, idKey, idKey);
-        indexes.push(key);
-        return key;
+
+      var partitions = groupBy(collection, function (obj) {
+        return computeValue(obj, idKey, idKey);
       });
 
-      // group indexes
-      indexes = _.uniq(indexes);
+      var result = [];
 
       // remove the group key
       expr = _.omit(expr, settings.key);
 
-      var result = [];
-      _.each(indexes, function (index) {
+      _.each(partitions.keys, function (value, i) {
         var obj = {};
-        obj[settings.key] = index;
+
+        // exclude undefined key value
+        if (!_.isUndefined(value)) {
+          obj[settings.key] = value;
+        }
+
         // compute remaining keys in expression
         for (var key in expr) {
           if (expr.hasOwnProperty(key)) {
-            obj[key] = accumulate(groups[index], key, expr[key]);
+            obj[key] = accumulate(partitions.groups[i], key, expr[key]);
           }
         }
         result.push(obj);
@@ -2791,6 +2902,7 @@ module.exports = function (value, replacer, space) {
       }
 
       for (var i = 0; i < collection.length; i++) {
+
         var obj = collection[i];
         var cloneObj = {};
         var foundSlice = false;
@@ -2799,6 +2911,7 @@ module.exports = function (value, replacer, space) {
         if (idOnlyExcludedExpression) {
           dropKeys.push(settings.key);
         }
+
         _.each(objKeys, function (key) {
 
           var subExpr = expr[key];
@@ -2817,7 +2930,7 @@ module.exports = function (value, replacer, space) {
           } else if (_.isObject(subExpr)) {
             var operator = _.keys(subExpr);
             operator = operator.length > 1 ? false : operator[0];
-            if (operator !== false && _.contains(Ops.projectionOperators, operator)) {
+            if (operator !== false && _.contains(ops(OP_PROJECTION), operator)) {
               // apply the projection operator on the operator expression for the key
               var temp = projectionOperators[operator](obj, subExpr[operator], key);
               if (!_.isUndefined(temp)) {
@@ -2834,8 +2947,8 @@ module.exports = function (value, replacer, space) {
             dropKeys.push(key);
           }
 
-          if (newValue !== undefined) {
-            cloneObj[key] = _.isObject(newValue) ? _.clone(newValue) : newValue;
+          if (!_.isUndefined(newValue)) {
+            cloneObj[key] = newValue;
           }
         });
         // if projection included $slice operator
@@ -2931,6 +3044,9 @@ module.exports = function (value, replacer, space) {
       return collection;
     }
   };
+
+  ////////// QUERY OPERATORS //////////
+  var queryOperators = {};
 
   var compoundOperators = {
 
@@ -3047,6 +3163,9 @@ module.exports = function (value, replacer, space) {
 
   };
 
+  // add compound query operators
+  _.extend(queryOperators, compoundOperators);
+
   var simpleOperators = {
 
     /**
@@ -3057,7 +3176,8 @@ module.exports = function (value, replacer, space) {
      * @returns {*}
      */
     $eq: function (a, b) {
-      a = _.isArray(a) ? a : [a];
+      // flatten to reach nested values. fix for https://github.com/kofrasa/mingo/issues/19
+      a = _.flatten(_.isArray(a) ? a : [a]);
       a = _.find(a, function (val) {
         return _.isEqual(val, b);
       });
@@ -3285,8 +3405,21 @@ module.exports = function (value, replacer, space) {
           return false;
       }
     }
-
   };
+  // add simple query operators
+  _.each(_.keys(simpleOperators), function (op) {
+    queryOperators[op] = (function (f, ctx) {
+      return function (selector, value) {
+        return {
+          test: function (obj) {
+            // value of field must be fully resolved.
+            var lhs = resolve(obj, selector);
+            return f.call(ctx, lhs, value);
+          }
+        };
+      }
+    }(simpleOperators[op], simpleOperators));
+  });
 
   var projectionOperators = {
 
@@ -3367,7 +3500,7 @@ module.exports = function (value, replacer, space) {
      */
     $addToSet: function (collection, expr) {
       var result = _.map(collection, function (obj) {
-        return computeValue(obj, expr);
+        return computeValue(obj, expr, null);
       });
       return _.uniq(result);
     },
@@ -3380,13 +3513,16 @@ module.exports = function (value, replacer, space) {
      * @returns {*}
      */
     $sum: function (collection, expr) {
+      if (!_.isArray(collection)) {
+        return 0;
+      }
       if (_.isNumber(expr)) {
         // take a short cut if expr is number literal
         return collection.length * expr;
       }
       return _.reduce(collection, function (acc, obj) {
         // pass empty field to avoid naming conflicts with fields on documents
-        return acc + computeValue(obj, expr);
+        return acc + computeValue(obj, expr, null);
       }, 0);
     },
 
@@ -3399,9 +3535,9 @@ module.exports = function (value, replacer, space) {
      */
     $max: function (collection, expr) {
       var obj = _.max(collection, function (obj) {
-        return computeValue(obj, expr);
+        return computeValue(obj, expr, null);
       });
-      return computeValue(obj, expr);
+      return computeValue(obj, expr, null);
     },
 
     /**
@@ -3413,9 +3549,9 @@ module.exports = function (value, replacer, space) {
      */
     $min: function (collection, expr) {
       var obj = _.min(collection, function (obj) {
-        return computeValue(obj, expr);
+        return computeValue(obj, expr, null);
       });
-      return computeValue(obj, expr);
+      return computeValue(obj, expr, null);
     },
 
     /**
@@ -3438,7 +3574,7 @@ module.exports = function (value, replacer, space) {
      */
     $push: function (collection, expr) {
       return _.map(collection, function (obj) {
-        return computeValue(obj, expr);
+        return computeValue(obj, expr, null);
       });
     },
 
@@ -3466,7 +3602,7 @@ module.exports = function (value, replacer, space) {
   };
 
 
-  /////////// Common Aggregation Operators ///////////
+  /////////// Aggregation Operators ///////////
 
   var arithmeticOperators = {
 
@@ -3478,7 +3614,7 @@ module.exports = function (value, replacer, space) {
      * @returns {Object}
      */
     $add: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.reduce(args, function (memo, num) {
         return memo + num;
       }, 0);
@@ -3492,7 +3628,7 @@ module.exports = function (value, replacer, space) {
      * @returns {number}
      */
     $subtract: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return args[0] - args[1];
     },
 
@@ -3504,7 +3640,7 @@ module.exports = function (value, replacer, space) {
      * @returns {number}
      */
     $divide: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return args[0] / args[1];
     },
 
@@ -3516,7 +3652,7 @@ module.exports = function (value, replacer, space) {
      * @returns {Object}
      */
     $multiply: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.reduce(args, function (memo, num) {
         return memo * num;
       }, 1);
@@ -3530,7 +3666,7 @@ module.exports = function (value, replacer, space) {
      * @returns {number}
      */
     $mod: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return args[0] % args[1];
     }
   };
@@ -3545,7 +3681,7 @@ module.exports = function (value, replacer, space) {
      * @returns {string|*}
      */
     $concat: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       // does not allow concatenation with nulls
       if (_.contains(args, null) || _.contains(args, undefined)) {
         return null;
@@ -3561,7 +3697,7 @@ module.exports = function (value, replacer, space) {
      * @returns {number}
      */
     $strcasecmp: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       args[0] = _.isEmpty(args[0]) ? "" : args[0].toUpperCase();
       args[1] = _.isEmpty(args[1]) ? "" : args[1].toUpperCase();
       if (args[0] > args[1]) {
@@ -3579,7 +3715,7 @@ module.exports = function (value, replacer, space) {
      * @returns {string}
      */
     $substr: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       if (_.isString(args[0])) {
         if (args[1] < 0) {
           return "";
@@ -3600,7 +3736,7 @@ module.exports = function (value, replacer, space) {
      * @returns {string}
      */
     $toLower: function (obj, expr) {
-      var value = computeValue(obj, expr);
+      var value = computeValue(obj, expr, null);
       return _.isEmpty(value) ? "" : value.toLowerCase();
     },
 
@@ -3612,7 +3748,7 @@ module.exports = function (value, replacer, space) {
      * @returns {string}
      */
     $toUpper: function (obj, expr) {
-      var value = computeValue(obj, expr);
+      var value = computeValue(obj, expr, null);
       return _.isEmpty(value) ? "" : value.toUpperCase();
     }
   };
@@ -3624,8 +3760,8 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $dayOfYear: function (obj, expr) {
-      var d = computeValue(obj, expr);
-      if (_.isDate(value)) {
+      var d = computeValue(obj, expr, null);
+      if (_.isDate(d)) {
         var start = new Date(d.getFullYear(), 0, 0);
         var diff = d - start;
         var oneDay = 1000 * 60 * 60 * 24;
@@ -3640,7 +3776,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $dayOfMonth: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getDate() : undefined;
     },
 
@@ -3650,7 +3786,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $dayOfWeek: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getDay() + 1 : undefined;
     },
 
@@ -3660,8 +3796,8 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $year: function (obj, expr) {
-      var d = computeValue(obj, expr);
-      return _.isDate(d) ? d.getFullYear() + 1 : undefined;
+      var d = computeValue(obj, expr, null);
+      return _.isDate(d) ? d.getFullYear() : undefined;
     },
 
     /**
@@ -3670,7 +3806,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $month: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getMonth() + 1 : undefined;
     },
 
@@ -3681,9 +3817,19 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $week: function (obj, expr) {
-      var d = computeValue(obj, expr);
-      // TODO
-      throw new Error("Not Implemented");
+      // source: http://stackoverflow.com/a/6117889/1370481
+      var d = computeValue(obj, expr, null);
+
+      // Copy date so don't modify original
+      d = new Date(+d);
+      d.setHours(0, 0, 0);
+      // Set to nearest Thursday: current date + 4 - current day number
+      // Make Sunday's day number 7
+      d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+      // Get first day of year
+      var yearStart = new Date(d.getFullYear(), 0, 1);
+      // Calculate full weeks to nearest Thursday
+      return Math.floor(( ( (d - yearStart) / 8.64e7) + 1) / 7);
     },
 
     /**
@@ -3692,7 +3838,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $hour: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getHours() : undefined;
     },
 
@@ -3702,7 +3848,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $minute: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getMinutes() : undefined;
     },
 
@@ -3712,7 +3858,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $second: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getSeconds() : undefined;
     },
 
@@ -3722,33 +3868,49 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $millisecond: function (obj, expr) {
-      var d = computeValue(obj, expr);
+      var d = computeValue(obj, expr, null);
       return _.isDate(d) ? d.getMilliseconds() : undefined;
     },
 
     /**
      * Returns the date as a formatted string.
-     * @param obj
-     * @param expr
+     *
+     * %Y  Year (4 digits, zero padded)  0000-9999
+     * %m  Month (2 digits, zero padded)  01-12
+     * %d  Day of Month (2 digits, zero padded)  01-31
+     * %H  Hour (2 digits, zero padded, 24-hour clock)  00-23
+     * %M  Minute (2 digits, zero padded)  00-59
+     * %S  Second (2 digits, zero padded)  00-60
+     * %L  Millisecond (3 digits, zero padded)  000-999
+     * %j  Day of year (3 digits, zero padded)  001-366
+     * %w  Day of week (1-Sunday, 7-Saturday)  1-7
+     * %U  Week of year (2 digits, zero padded)  00-53
+     * %%  Percent Character as a Literal  %
+     *
+     * @param obj current object
+     * @param expr operator expression
      */
     $dateToString: function (obj, expr) {
+
       var fmt = expr['format'];
-      var date = computeValue(obj, expr['date']);
-      // TODO: use python-style date formatting
-      /*
-       %Y	Year (4 digits, zero padded)	0000-9999
-       %m	Month (2 digits, zero padded)	01-12
-       %d	Day of Month (2 digits, zero padded)	01-31
-       %H	Hour (2 digits, zero padded, 24-hour clock)	00-23
-       %M	Minute (2 digits, zero padded)	00-59
-       %S	Second (2 digits, zero padded)	00-60
-       %L	Millisecond (3 digits, zero padded)	000-999
-       %j	Day of year (3 digits, zero padded)	001-366
-       %w	Day of week (1-Sunday, 7-Saturday)	1-7
-       %U	Week of year (2 digits, zero padded)	00-53
-       %%	Percent Character as a Literal	%
-       */
-      throw new Error("Not Implemented");
+      var date = computeValue(obj, expr['date'], null);
+      var matches = fmt.match(/(%%|%Y|%m|%d|%H|%M|%S|%L|%j|%w|%U)/g);
+
+      for (var i = 0, len = matches.length; i < len; i++) {
+        var hdlr = DATE_SYM_TABLE[matches[i]];
+        var value = hdlr;
+
+        if (_.isArray(hdlr)) {
+          // reuse date operators
+          var fn = this[hdlr[0]];
+          var pad = hdlr[1];
+          value = padDigits(fn.call(this, obj, date), pad);
+        }
+        // replace the match with resolved value
+        fmt = fmt.replace(matches[i], value);
+      }
+
+      return fmt;
     }
   };
 
@@ -3759,7 +3921,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $setEquals: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       var first = _.uniq(args[0]);
       var second = _.uniq(args[1]);
       if (first.length !== second.length) {
@@ -3774,7 +3936,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $setIntersection: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.intersection(args[0], args[1]);
     },
 
@@ -3784,7 +3946,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $setDifference: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.difference(args[0], args[1]);
     },
 
@@ -3794,7 +3956,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $setUnion: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.union(args[0], args[1]);
     },
 
@@ -3804,7 +3966,7 @@ module.exports = function (value, replacer, space) {
      * @param expr
      */
     $setIsSubset: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return _.intersection(args[0], args[1]).length === args[0].length;
     },
 
@@ -3815,7 +3977,7 @@ module.exports = function (value, replacer, space) {
      */
     $anyElementTrue: function (obj, expr) {
       // mongodb nests the array expression in another
-      var args = computeValue(obj, expr)[0];
+      var args = computeValue(obj, expr, null)[0];
       for (var i = 0; i < args.length; i++) {
         if (!!args[i])
           return true;
@@ -3830,7 +3992,7 @@ module.exports = function (value, replacer, space) {
      */
     $allElementsTrue: function (obj, expr) {
       // mongodb nests the array expression in another
-      var args = computeValue(obj, expr)[0];
+      var args = computeValue(obj, expr, null)[0];
       for (var i = 0; i < args.length; i++) {
         if (!args[i])
           return false;
@@ -3862,8 +4024,8 @@ module.exports = function (value, replacer, space) {
         thenExpr = expr['then'];
         elseExpr = expr['else'];
       }
-      var condition = computeValue(obj, ifExpr);
-      return condition ? computeValue(obj, thenExpr) : computeValue(obj, elseExpr);
+      var condition = computeValue(obj, ifExpr, null);
+      return condition ? computeValue(obj, thenExpr, null) : computeValue(obj, elseExpr, null);
     },
 
     /**
@@ -3878,7 +4040,7 @@ module.exports = function (value, replacer, space) {
       if (!_.isArray(expr) || expr.length != 2) {
         throw new Error("Invalid arguments for $ifNull operator");
       }
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       return (args[0] === null || args[0] === undefined) ? args[1] : args[0];
     }
   };
@@ -3892,42 +4054,253 @@ module.exports = function (value, replacer, space) {
      * @returns {number}
      */
     $cmp: function (obj, expr) {
-      var args = computeValue(obj, expr);
+      var args = computeValue(obj, expr, null);
       if (args[0] > args[1]) {
         return 1;
       }
       return (args[0] < args[1]) ? -1 : 0;
     }
   };
-
-  // combine aggregate operators
-  var aggregateOperators = _.extend(
-      {},
-      arithmeticOperators,
-      comparisonOperators,
-      conditionalOperators,
-      dateOperators,
-      setOperators,
-      stringOperators
-  );
-
   // mixin comparison operators
   _.each(["$eq", "$ne", "$gt", "$gte", "$lt", "$lte"], function (op) {
-    aggregateOperators[op] = function (obj, expr) {
-      var args = computeValue(obj, expr);
+    comparisonOperators[op] = function (obj, expr) {
+      var args = computeValue(obj, expr, null);
       return simpleOperators[op](args[0], args[1]);
     };
   });
 
-  var Ops = {
-    simpleOperators: _.keys(simpleOperators),
-    compoundOperators: _.keys(compoundOperators),
-    aggregateOperators: _.keys(aggregateOperators),
-    groupOperators: _.keys(groupOperators),
-    pipelineOperators: _.keys(pipelineOperators),
-    projectionOperators: _.keys(projectionOperators)
+  var arrayOperators = {
+    /**
+     * Counts and returns the total the number of items in an array.
+     * @param obj
+     * @param expr
+     */
+    $size: function (obj, expr) {
+      var value = computeValue(obj, expr, null);
+      return _.isArray(value) ? value.length : undefined;
+    }
   };
-  Ops.queryOperators = _.union(Ops.simpleOperators, Ops.compoundOperators);
+
+  var literalOperators = {
+    /**
+     * Return a value without parsing.
+     * @param obj
+     * @param expr
+     */
+    $literal: function (obj, expr) {
+      return expr;
+    }
+  };
+
+
+  var variableOperators = {
+    /**
+     * Applies a subexpression to each element of an array and returns the array of resulting values in order.
+     * @param obj
+     * @param expr
+     * @returns {Array|*}
+     */
+    $map: function (obj, expr) {
+      var inputExpr = computeValue(obj, expr["input"], null);
+      if (!_.isArray(inputExpr)) {
+        throw new Error("Input expression for $map must resolve to an array");
+      }
+      var asExpr = expr["as"];
+      var inExpr = expr["in"];
+
+      // HACK: add the "as" expression as a value on the object to take advantage of "resolve()"
+      // which will reduce to that value when invoked. The reference to the as expression will be prefixed with "$$".
+      // But since a "$" is stripped of before passing the name to "resolve()" we just need to prepend "$" to the key.
+      var tempKey = "$" + asExpr;
+      // let's save any value that existed, kinda useless but YOU CAN NEVER BE TOO SURE, CAN YOU :)
+      var original = obj[tempKey];
+      return _.map(inputExpr, function (item) {
+        obj[tempKey] = item;
+        var value = computeValue(obj, inExpr, null);
+        // cleanup and restore
+        if (_.isUndefined(original)) {
+          delete obj[tempKey];
+        } else {
+          obj[tempKey] = original;
+        }
+        return value;
+      });
+
+    },
+
+    /**
+     * Defines variables for use within the scope of a subexpression and returns the result of the subexpression.
+     * @param obj
+     * @param expr
+     * @returns {*}
+     */
+    $let: function (obj, expr) {
+      var varsExpr = expr["vars"];
+      var inExpr = expr["in"];
+
+      // resolve vars
+      var originals = {};
+      var varsKeys = _.keys(varsExpr);
+      _.each(varsKeys, function (key) {
+        var val = computeValue(obj, varsExpr[key], null);
+        var tempKey = "$" + key;
+        // set value on object using same technique as in "$map"
+        originals[tempKey] = obj[tempKey];
+        obj[tempKey] = val;
+      });
+
+      var value = computeValue(obj, inExpr, null);
+
+      // cleanup and restore
+      _.each(varsKeys, function (key) {
+        var tempKey = "$" + key;
+        if (_.isUndefined(originals[tempKey])) {
+          delete obj[tempKey];
+        } else {
+          obj[tempKey] = originals[tempKey];
+        }
+      });
+
+      return value;
+    }
+  };
+
+  var booleanOperators = {
+    /**
+     * Returns true only when all its expressions evaluate to true. Accepts any number of argument expressions.
+     * @param obj
+     * @param expr
+     * @returns {boolean}
+     */
+    $and: function (obj, expr) {
+      var value = computeValue(obj, expr, null);
+      return _.every(value);
+    },
+
+    /**
+     * Returns true when any of its expressions evaluates to true. Accepts any number of argument expressions.
+     * @param obj
+     * @param expr
+     * @returns {boolean}
+     */
+    $or: function (obj, expr) {
+      var value = computeValue(obj, expr, null);
+      return _.some(value);
+    },
+
+    /**
+     * Returns the boolean value that is the opposite of its argument expression. Accepts a single argument expression.
+     * @param obj
+     * @param expr
+     * @returns {boolean}
+     */
+    $not: function (obj, expr) {
+      return !computeValue(obj, expr[0], null);
+    }
+  };
+
+  // combine aggregate operators
+  var aggregateOperators = _.extend(
+    {},
+    arrayOperators,
+    arithmeticOperators,
+    booleanOperators,
+    comparisonOperators,
+    conditionalOperators,
+    dateOperators,
+    literalOperators,
+    setOperators,
+    stringOperators,
+    variableOperators
+  );
+
+  var OP_QUERY = Mingo.OP_QUERY = 'query',
+    OP_GROUP = Mingo.OP_GROUP = 'group',
+    OP_AGGREGATE = Mingo.OP_AGGREGATE = 'aggregate',
+    OP_PIPELINE = Mingo.OP_PIPELINE = 'pipeline',
+    OP_PROJECTION = Mingo.OP_PROJECTION = 'projection';
+
+  // operator definitions
+  var OPERATORS = {
+    'aggregate': aggregateOperators,
+    'group': groupOperators,
+    'pipeline': pipelineOperators,
+    'projection': projectionOperators,
+    'query': queryOperators
+  };
+
+  // used for formatting dates in $dateToString operator
+  var DATE_SYM_TABLE = {
+    '%Y': ['$year', 4],
+    '%m': ['$month', 2],
+    '%d': ['$dayOfMonth', 2],
+    '%H': ['$hour', 2],
+    '%M': ['$minute', 2],
+    '%S': ['$second', 2],
+    '%L': ['$millisecond', 3],
+    '%j': ['$dayOfYear', 3],
+    '%w': ['$dayOfWeek', 1],
+    '%U': ['$week', 2],
+    '%%': '%'
+  };
+
+  function padDigits(number, digits) {
+    return new Array(Math.max(digits - String(number).length + 1, 0)).join('0') + number;
+  }
+
+  /**
+   * Return the registered operators on the given operator category
+   * @param type catgory of operators
+   * @returns {*}
+   */
+  function ops(type) {
+    return _.keys(OPERATORS[type]);
+  }
+
+  /**
+   * Groups the collection into sets by the returned key
+   *
+   * @param collection
+   * @param fn
+   */
+  function groupBy(collection, fn) {
+
+    var result = {
+      'keys': [],
+      'groups': []
+    };
+
+    _.each(collection, function (obj) {
+
+      var key = fn(obj);
+      var index = -1;
+
+      if (_.isObject(key)) {
+        for (var i = 0; i < result.keys.length; i++) {
+          if (_.isEqual(key, result.keys[i])) {
+            index = i;
+            break;
+          }
+        }
+      } else {
+        index = _.indexOf(result.keys, key);
+      }
+
+      if (index > -1) {
+        result.groups[index].push(obj);
+      } else {
+        result.keys.push(key);
+        result.groups.push([obj]);
+      }
+    });
+
+    // assert this
+    if (result.keys.length !== result.groups.length) {
+      throw new Error("assert groupBy(): keys.length !== groups.length");
+    }
+
+    return result;
+  }
 
   /**
    * Returns the result of evaluating a $group operation over a collection
@@ -3938,7 +4311,7 @@ module.exports = function (value, replacer, space) {
    * @returns {*}
    */
   function accumulate(collection, field, expr) {
-    if (_.contains(Ops.groupOperators, field)) {
+    if (_.contains(ops(OP_GROUP), field)) {
       return groupOperators[field](collection, expr);
     }
 
@@ -3949,7 +4322,7 @@ module.exports = function (value, replacer, space) {
           result[key] = accumulate(collection, key, expr[key]);
           // must run ONLY one group operator per expression
           // if so, return result of the computed value
-          if (_.contains(Ops.groupOperators, key)) {
+          if (_.contains(ops(OP_GROUP), key)) {
             result = result[key];
             // if there are more keys in expression this is bad
             if (_.keys(expr).length > 1) {
@@ -3976,7 +4349,7 @@ module.exports = function (value, replacer, space) {
   function computeValue(obj, expr, field) {
 
     // if the field of the object is a valid operator
-    if (_.contains(Ops.aggregateOperators, field)) {
+    if (_.contains(ops(OP_AGGREGATE), field)) {
       return aggregateOperators[field](obj, expr);
     }
 
@@ -3988,11 +4361,13 @@ module.exports = function (value, replacer, space) {
 
     var result;
 
-    if (_.isArray(expr)) {
-      result = [];
-      for (var i = 0; i < expr.length; i++) {
-        result.push(computeValue(obj, expr[i], null));
-      }
+    // check and return value if already in a resolved state
+    if (isPrimitive(expr)) {
+      return expr;
+    } else if (_.isArray(expr)) {
+      result = _.map(expr, function (item) {
+        return computeValue(obj, item, null);
+      });
     } else if (_.isObject(expr)) {
       result = {};
       for (var key in expr) {
@@ -4001,7 +4376,7 @@ module.exports = function (value, replacer, space) {
 
           // must run ONLY one aggregate operator per expression
           // if so, return result of the computed value
-          if (_.contains(Ops.aggregateOperators, key)) {
+          if (_.contains(ops(OP_AGGREGATE), key)) {
             result = result[key];
             // if there are more keys in expression this is bad
             if (_.keys(expr).length > 1) {
@@ -4009,13 +4384,6 @@ module.exports = function (value, replacer, space) {
             }
             break;
           }
-        }
-      }
-    } else {
-      // check and return value if already in a resolved state
-      for (var i = 0; i < primitives.length; i++) {
-        if (primitives[i](expr)) {
-          return expr;
         }
       }
     }
@@ -8774,13 +9142,13 @@ code.google.com/p/crypto-js/wiki/License
 });
 
 },{}],34:[function(require,module,exports){
-(function (process,global){
+(function (process){
 /*!
  * @overview RSVP - a tiny implementation of Promises/A+.
  * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors
  * @license   Licensed under MIT license
  *            See https://raw.githubusercontent.com/tildeio/rsvp.js/master/LICENSE
- * @version   3.0.21
+ * @version   3.0.17
  */
 
 (function() {
@@ -8910,10 +9278,6 @@ code.google.com/p/crypto-js/wiki/License
         @param {Function} callback function to be called when the event is triggered.
       */
       'on': function(eventName, callback) {
-        if (typeof callback !== 'function') {
-          throw new TypeError('Callback must be a function');
-        }
-
         var allCallbacks = lib$rsvp$events$$callbacksFor(this), callbacks;
 
         callbacks = allCallbacks[eventName];
@@ -9008,7 +9372,7 @@ code.google.com/p/crypto-js/wiki/License
         @for RSVP.EventTarget
         @private
         @param {String} eventName name of the event to be triggered
-        @param {*} options optional value to be passed to any event handlers for
+        @param {Any} options optional value to be passed to any event handlers for
         the given `eventName`
       */
       'trigger': function(eventName, options) {
@@ -9071,19 +9435,19 @@ code.google.com/p/crypto-js/wiki/License
 
     function lib$rsvp$instrument$$instrument(eventName, promise, child) {
       if (1 === lib$rsvp$instrument$$queue.push({
-        name: eventName,
-        payload: {
-          key: promise._guidKey,
-          id:  promise._id,
-          eventName: eventName,
-          detail: promise._result,
-          childId: child && child._id,
-          label: promise._label,
-          timeStamp: lib$rsvp$utils$$now(),
-          error: lib$rsvp$config$$config["instrument-with-stack"] ? new Error(promise._label) : null
-        }})) {
-          lib$rsvp$instrument$$scheduleFlush();
-        }
+          name: eventName,
+          payload: {
+            key: promise._guidKey,
+            id:  promise._id,
+            eventName: eventName,
+            detail: promise._result,
+            childId: child && child._id,
+            label: promise._label,
+            timeStamp: lib$rsvp$utils$$now(),
+            error: lib$rsvp$config$$config["instrument-with-stack"] ? new Error(promise._label) : null
+          }})) {
+            lib$rsvp$instrument$$scheduleFlush();
+          }
       }
     var lib$rsvp$instrument$$default = lib$rsvp$instrument$$instrument;
 
@@ -9336,7 +9700,7 @@ code.google.com/p/crypto-js/wiki/License
           value: value
         };
       } else {
-         return {
+        return {
           state: 'rejected',
           reason: value
         };
@@ -9344,30 +9708,28 @@ code.google.com/p/crypto-js/wiki/License
     }
 
     function lib$rsvp$enumerator$$Enumerator(Constructor, input, abortOnReject, label) {
-      var enumerator = this;
+      this._instanceConstructor = Constructor;
+      this.promise = new Constructor(lib$rsvp$$internal$$noop, label);
+      this._abortOnReject = abortOnReject;
 
-      enumerator._instanceConstructor = Constructor;
-      enumerator.promise = new Constructor(lib$rsvp$$internal$$noop, label);
-      enumerator._abortOnReject = abortOnReject;
+      if (this._validateInput(input)) {
+        this._input     = input;
+        this.length     = input.length;
+        this._remaining = input.length;
 
-      if (enumerator._validateInput(input)) {
-        enumerator._input     = input;
-        enumerator.length     = input.length;
-        enumerator._remaining = input.length;
+        this._init();
 
-        enumerator._init();
-
-        if (enumerator.length === 0) {
-          lib$rsvp$$internal$$fulfill(enumerator.promise, enumerator._result);
+        if (this.length === 0) {
+          lib$rsvp$$internal$$fulfill(this.promise, this._result);
         } else {
-          enumerator.length = enumerator.length || 0;
-          enumerator._enumerate();
-          if (enumerator._remaining === 0) {
-            lib$rsvp$$internal$$fulfill(enumerator.promise, enumerator._result);
+          this.length = this.length || 0;
+          this._enumerate();
+          if (this._remaining === 0) {
+            lib$rsvp$$internal$$fulfill(this.promise, this._result);
           }
         }
       } else {
-        lib$rsvp$$internal$$reject(enumerator.promise, enumerator._validationError());
+        lib$rsvp$$internal$$reject(this.promise, this._validationError());
       }
     }
 
@@ -9386,48 +9748,45 @@ code.google.com/p/crypto-js/wiki/License
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._enumerate = function() {
-      var enumerator = this;
-      var length     = enumerator.length;
-      var promise    = enumerator.promise;
-      var input      = enumerator._input;
+      var length  = this.length;
+      var promise = this.promise;
+      var input   = this._input;
 
       for (var i = 0; promise._state === lib$rsvp$$internal$$PENDING && i < length; i++) {
-        enumerator._eachEntry(input[i], i);
+        this._eachEntry(input[i], i);
       }
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._eachEntry = function(entry, i) {
-      var enumerator = this;
-      var c = enumerator._instanceConstructor;
+      var c = this._instanceConstructor;
       if (lib$rsvp$utils$$isMaybeThenable(entry)) {
         if (entry.constructor === c && entry._state !== lib$rsvp$$internal$$PENDING) {
           entry._onError = null;
-          enumerator._settledAt(entry._state, i, entry._result);
+          this._settledAt(entry._state, i, entry._result);
         } else {
-          enumerator._willSettleAt(c.resolve(entry), i);
+          this._willSettleAt(c.resolve(entry), i);
         }
       } else {
-        enumerator._remaining--;
-        enumerator._result[i] = enumerator._makeResult(lib$rsvp$$internal$$FULFILLED, i, entry);
+        this._remaining--;
+        this._result[i] = this._makeResult(lib$rsvp$$internal$$FULFILLED, i, entry);
       }
     };
 
     lib$rsvp$enumerator$$Enumerator.prototype._settledAt = function(state, i, value) {
-      var enumerator = this;
-      var promise = enumerator.promise;
+      var promise = this.promise;
 
       if (promise._state === lib$rsvp$$internal$$PENDING) {
-        enumerator._remaining--;
+        this._remaining--;
 
-        if (enumerator._abortOnReject && state === lib$rsvp$$internal$$REJECTED) {
+        if (this._abortOnReject && state === lib$rsvp$$internal$$REJECTED) {
           lib$rsvp$$internal$$reject(promise, value);
         } else {
-          enumerator._result[i] = enumerator._makeResult(state, i, value);
+          this._result[i] = this._makeResult(state, i, value);
         }
       }
 
-      if (enumerator._remaining === 0) {
-        lib$rsvp$$internal$$fulfill(promise, enumerator._result);
+      if (this._remaining === 0) {
+        lib$rsvp$$internal$$fulfill(promise, this._result);
       }
     };
 
@@ -9509,17 +9868,119 @@ code.google.com/p/crypto-js/wiki/License
       throw new TypeError("Failed to construct 'Promise': Please use the 'new' operator, this object constructor cannot be called as a function.");
     }
 
-    function lib$rsvp$promise$$Promise(resolver, label) {
-      var promise = this;
+    /**
+      Promise objects represent the eventual result of an asynchronous operation. The
+      primary way of interacting with a promise is through its `then` method, which
+      registers callbacks to receive either a promise’s eventual value or the reason
+      why the promise cannot be fulfilled.
 
-      promise._id = lib$rsvp$promise$$counter++;
-      promise._label = label;
-      promise._state = undefined;
-      promise._result = undefined;
-      promise._subscribers = [];
+      Terminology
+      -----------
+
+      - `promise` is an object or function with a `then` method whose behavior conforms to this specification.
+      - `thenable` is an object or function that defines a `then` method.
+      - `value` is any legal JavaScript value (including undefined, a thenable, or a promise).
+      - `exception` is a value that is thrown using the throw statement.
+      - `reason` is a value that indicates why a promise was rejected.
+      - `settled` the final resting state of a promise, fulfilled or rejected.
+
+      A promise can be in one of three states: pending, fulfilled, or rejected.
+
+      Promises that are fulfilled have a fulfillment value and are in the fulfilled
+      state.  Promises that are rejected have a rejection reason and are in the
+      rejected state.  A fulfillment value is never a thenable.
+
+      Promises can also be said to *resolve* a value.  If this value is also a
+      promise, then the original promise's settled state will match the value's
+      settled state.  So a promise that *resolves* a promise that rejects will
+      itself reject, and a promise that *resolves* a promise that fulfills will
+      itself fulfill.
+
+
+      Basic Usage:
+      ------------
+
+      ```js
+      var promise = new Promise(function(resolve, reject) {
+        // on success
+        resolve(value);
+
+        // on failure
+        reject(reason);
+      });
+
+      promise.then(function(value) {
+        // on fulfillment
+      }, function(reason) {
+        // on rejection
+      });
+      ```
+
+      Advanced Usage:
+      ---------------
+
+      Promises shine when abstracting away asynchronous interactions such as
+      `XMLHttpRequest`s.
+
+      ```js
+      function getJSON(url) {
+        return new Promise(function(resolve, reject){
+          var xhr = new XMLHttpRequest();
+
+          xhr.open('GET', url);
+          xhr.onreadystatechange = handler;
+          xhr.responseType = 'json';
+          xhr.setRequestHeader('Accept', 'application/json');
+          xhr.send();
+
+          function handler() {
+            if (this.readyState === this.DONE) {
+              if (this.status === 200) {
+                resolve(this.response);
+              } else {
+                reject(new Error('getJSON: `' + url + '` failed with status: [' + this.status + ']'));
+              }
+            }
+          };
+        });
+      }
+
+      getJSON('/posts.json').then(function(json) {
+        // on fulfillment
+      }, function(reason) {
+        // on rejection
+      });
+      ```
+
+      Unlike callbacks, promises are great composable primitives.
+
+      ```js
+      Promise.all([
+        getJSON('/posts'),
+        getJSON('/comments')
+      ]).then(function(values){
+        values[0] // => postsJSON
+        values[1] // => commentsJSON
+
+        return values;
+      });
+      ```
+
+      @class RSVP.Promise
+      @param {function} resolver
+      @param {String} label optional string for labeling the promise.
+      Useful for tooling.
+      @constructor
+    */
+    function lib$rsvp$promise$$Promise(resolver, label) {
+      this._id = lib$rsvp$promise$$counter++;
+      this._label = label;
+      this._state = undefined;
+      this._result = undefined;
+      this._subscribers = [];
 
       if (lib$rsvp$config$$config.instrument) {
-        lib$rsvp$instrument$$default('created', promise);
+        lib$rsvp$instrument$$default('created', this);
       }
 
       if (lib$rsvp$$internal$$noop !== resolver) {
@@ -9527,11 +9988,11 @@ code.google.com/p/crypto-js/wiki/License
           lib$rsvp$promise$$needsResolver();
         }
 
-        if (!(promise instanceof lib$rsvp$promise$$Promise)) {
+        if (!(this instanceof lib$rsvp$promise$$Promise)) {
           lib$rsvp$promise$$needsNew();
         }
 
-        lib$rsvp$$internal$$initializePromise(promise, resolver);
+        lib$rsvp$$internal$$initializePromise(this, resolver);
       }
     }
 
@@ -9550,12 +10011,13 @@ code.google.com/p/crypto-js/wiki/License
       _guidKey: lib$rsvp$promise$$guidKey,
 
       _onError: function (reason) {
-        var promise = this;
-        lib$rsvp$config$$config.after(function() {
-          if (promise._onError) {
-            lib$rsvp$config$$config['trigger']('error', reason);
-          }
-        });
+        lib$rsvp$config$$config.async(function(promise) {
+          setTimeout(function() {
+            if (promise._onError) {
+              lib$rsvp$config$$config['trigger']('error', reason);
+            }
+          }, 0);
+        }, this);
       },
 
     /**
@@ -9746,8 +10208,8 @@ code.google.com/p/crypto-js/wiki/License
       ```
 
       @method then
-      @param {Function} onFulfillment
-      @param {Function} onRejection
+      @param {Function} onFulfilled
+      @param {Function} onRejected
       @param {String} label optional string for labeling the promise.
       Useful for tooling.
       @return {Promise}
@@ -9758,14 +10220,14 @@ code.google.com/p/crypto-js/wiki/License
 
         if (state === lib$rsvp$$internal$$FULFILLED && !onFulfillment || state === lib$rsvp$$internal$$REJECTED && !onRejection) {
           if (lib$rsvp$config$$config.instrument) {
-            lib$rsvp$instrument$$default('chained', parent, parent);
+            lib$rsvp$instrument$$default('chained', this, this);
           }
-          return parent;
+          return this;
         }
 
         parent._onError = null;
 
-        var child = new parent.constructor(lib$rsvp$$internal$$noop, label);
+        var child = new this.constructor(lib$rsvp$$internal$$noop, label);
         var result = parent._result;
 
         if (lib$rsvp$config$$config.instrument) {
@@ -9813,7 +10275,7 @@ code.google.com/p/crypto-js/wiki/License
       @return {Promise}
     */
       'catch': function(onRejection, label) {
-        return this.then(undefined, onRejection, label);
+        return this.then(null, onRejection, label);
       },
 
     /**
@@ -9857,10 +10319,9 @@ code.google.com/p/crypto-js/wiki/License
       @return {Promise}
     */
       'finally': function(callback, label) {
-        var promise = this;
-        var constructor = promise.constructor;
+        var constructor = this.constructor;
 
-        return promise.then(function(value) {
+        return this.then(function(value) {
           return constructor.resolve(callback()).then(function(){
             return value;
           });
@@ -9911,8 +10372,7 @@ code.google.com/p/crypto-js/wiki/License
     var lib$rsvp$asap$$browserWindow = (typeof window !== 'undefined') ? window : undefined;
     var lib$rsvp$asap$$browserGlobal = lib$rsvp$asap$$browserWindow || {};
     var lib$rsvp$asap$$BrowserMutationObserver = lib$rsvp$asap$$browserGlobal.MutationObserver || lib$rsvp$asap$$browserGlobal.WebKitMutationObserver;
-    var lib$rsvp$asap$$isNode = typeof self === 'undefined' &&
-      typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
+    var lib$rsvp$asap$$isNode = typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
 
     // test for web worker but not in IE10
     var lib$rsvp$asap$$isWorker = typeof Uint8ClampedArray !== 'undefined' &&
@@ -10006,7 +10466,7 @@ code.google.com/p/crypto-js/wiki/License
       lib$rsvp$asap$$scheduleFlush = lib$rsvp$asap$$useSetTimeout();
     }
     function lib$rsvp$defer$$defer(label) {
-      var deferred = {};
+      var deferred = { };
 
       deferred['promise'] = new lib$rsvp$promise$$default(function(resolve, reject) {
         deferred['resolve'] = resolve;
@@ -10069,13 +10529,12 @@ code.google.com/p/crypto-js/wiki/License
     };
 
     lib$rsvp$promise$hash$$PromiseHash.prototype._enumerate = function() {
-      var enumerator = this;
-      var promise    = enumerator.promise;
-      var input      = enumerator._input;
-      var results    = [];
+      var promise = this.promise;
+      var input   = this._input;
+      var results = [];
 
       for (var key in input) {
-        if (promise._state === lib$rsvp$$internal$$PENDING && Object.prototype.hasOwnProperty.call(input, key)) {
+        if (promise._state === lib$rsvp$$internal$$PENDING && input.hasOwnProperty(key)) {
           results.push({
             position: key,
             entry: input[key]
@@ -10084,12 +10543,12 @@ code.google.com/p/crypto-js/wiki/License
       }
 
       var length = results.length;
-      enumerator._remaining = length;
+      this._remaining = length;
       var result;
 
       for (var i = 0; promise._state === lib$rsvp$$internal$$PENDING && i < length; i++) {
         result = results[i];
-        enumerator._eachEntry(result.entry, result.position);
+        this._eachEntry(result.entry, result.position);
       }
     };
 
@@ -10278,20 +10737,6 @@ code.google.com/p/crypto-js/wiki/License
         return false;
       }
     }
-    var lib$rsvp$platform$$platform;
-
-    /* global self */
-    if (typeof self === 'object') {
-      lib$rsvp$platform$$platform = self;
-
-    /* global global */
-    } else if (typeof global === 'object') {
-      lib$rsvp$platform$$platform = global;
-    } else {
-      throw new Error('no global: `self` or `global` found');
-    }
-
-    var lib$rsvp$platform$$default = lib$rsvp$platform$$platform;
     function lib$rsvp$race$$race(array, label) {
       return lib$rsvp$promise$$default.race(array, label);
     }
@@ -10312,11 +10757,8 @@ code.google.com/p/crypto-js/wiki/License
     }
     var lib$rsvp$rethrow$$default = lib$rsvp$rethrow$$rethrow;
 
-    // defaults
+    // default async is asap;
     lib$rsvp$config$$config.async = lib$rsvp$asap$$default;
-    lib$rsvp$config$$config.after = function(cb) {
-      setTimeout(cb, 0);
-    };
     var lib$rsvp$$cast = lib$rsvp$resolve$$default;
     function lib$rsvp$$async(callback, arg) {
       lib$rsvp$config$$config.async(callback, arg);
@@ -10367,3772 +10809,15 @@ code.google.com/p/crypto-js/wiki/License
       define(function() { return lib$rsvp$umd$$RSVP; });
     } else if (typeof module !== 'undefined' && module['exports']) {
       module['exports'] = lib$rsvp$umd$$RSVP;
-    } else if (typeof lib$rsvp$platform$$default !== 'undefined') {
-      lib$rsvp$platform$$default['RSVP'] = lib$rsvp$umd$$RSVP;
+    } else if (typeof this !== 'undefined') {
+      this['RSVP'] = lib$rsvp$umd$$RSVP;
     }
 }).call(this);
 
 
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-
-},{"_process":4}],35:[function(require,module,exports){
-//     Underscore.js 1.8.3
-//     http://underscorejs.org
-//     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
-//     Underscore may be freely distributed under the MIT license.
-
-(function() {
-
-  // Baseline setup
-  // --------------
-
-  // Establish the root object, `window` in the browser, or `exports` on the server.
-  var root = this;
-
-  // Save the previous value of the `_` variable.
-  var previousUnderscore = root._;
-
-  // Save bytes in the minified (but not gzipped) version:
-  var ArrayProto = Array.prototype, ObjProto = Object.prototype, FuncProto = Function.prototype;
-
-  // Create quick reference variables for speed access to core prototypes.
-  var
-    push             = ArrayProto.push,
-    slice            = ArrayProto.slice,
-    toString         = ObjProto.toString,
-    hasOwnProperty   = ObjProto.hasOwnProperty;
-
-  // All **ECMAScript 5** native function implementations that we hope to use
-  // are declared here.
-  var
-    nativeIsArray      = Array.isArray,
-    nativeKeys         = Object.keys,
-    nativeBind         = FuncProto.bind,
-    nativeCreate       = Object.create;
-
-  // Naked function reference for surrogate-prototype-swapping.
-  var Ctor = function(){};
-
-  // Create a safe reference to the Underscore object for use below.
-  var _ = function(obj) {
-    if (obj instanceof _) return obj;
-    if (!(this instanceof _)) return new _(obj);
-    this._wrapped = obj;
-  };
-
-  // Export the Underscore object for **Node.js**, with
-  // backwards-compatibility for the old `require()` API. If we're in
-  // the browser, add `_` as a global object.
-  if (typeof exports !== 'undefined') {
-    if (typeof module !== 'undefined' && module.exports) {
-      exports = module.exports = _;
-    }
-    exports._ = _;
-  } else {
-    root._ = _;
-  }
-
-  // Current version.
-  _.VERSION = '1.8.3';
-
-  // Internal function that returns an efficient (for current engines) version
-  // of the passed-in callback, to be repeatedly applied in other Underscore
-  // functions.
-  var optimizeCb = function(func, context, argCount) {
-    if (context === void 0) return func;
-    switch (argCount == null ? 3 : argCount) {
-      case 1: return function(value) {
-        return func.call(context, value);
-      };
-      case 2: return function(value, other) {
-        return func.call(context, value, other);
-      };
-      case 3: return function(value, index, collection) {
-        return func.call(context, value, index, collection);
-      };
-      case 4: return function(accumulator, value, index, collection) {
-        return func.call(context, accumulator, value, index, collection);
-      };
-    }
-    return function() {
-      return func.apply(context, arguments);
-    };
-  };
-
-  // A mostly-internal function to generate callbacks that can be applied
-  // to each element in a collection, returning the desired result — either
-  // identity, an arbitrary callback, a property matcher, or a property accessor.
-  var cb = function(value, context, argCount) {
-    if (value == null) return _.identity;
-    if (_.isFunction(value)) return optimizeCb(value, context, argCount);
-    if (_.isObject(value)) return _.matcher(value);
-    return _.property(value);
-  };
-  _.iteratee = function(value, context) {
-    return cb(value, context, Infinity);
-  };
-
-  // An internal function for creating assigner functions.
-  var createAssigner = function(keysFunc, undefinedOnly) {
-    return function(obj) {
-      var length = arguments.length;
-      if (length < 2 || obj == null) return obj;
-      for (var index = 1; index < length; index++) {
-        var source = arguments[index],
-            keys = keysFunc(source),
-            l = keys.length;
-        for (var i = 0; i < l; i++) {
-          var key = keys[i];
-          if (!undefinedOnly || obj[key] === void 0) obj[key] = source[key];
-        }
-      }
-      return obj;
-    };
-  };
-
-  // An internal function for creating a new object that inherits from another.
-  var baseCreate = function(prototype) {
-    if (!_.isObject(prototype)) return {};
-    if (nativeCreate) return nativeCreate(prototype);
-    Ctor.prototype = prototype;
-    var result = new Ctor;
-    Ctor.prototype = null;
-    return result;
-  };
-
-  var property = function(key) {
-    return function(obj) {
-      return obj == null ? void 0 : obj[key];
-    };
-  };
-
-  // Helper for collection methods to determine whether a collection
-  // should be iterated as an array or as an object
-  // Related: http://people.mozilla.org/~jorendorff/es6-draft.html#sec-tolength
-  // Avoids a very nasty iOS 8 JIT bug on ARM-64. #2094
-  var MAX_ARRAY_INDEX = Math.pow(2, 53) - 1;
-  var getLength = property('length');
-  var isArrayLike = function(collection) {
-    var length = getLength(collection);
-    return typeof length == 'number' && length >= 0 && length <= MAX_ARRAY_INDEX;
-  };
-
-  // Collection Functions
-  // --------------------
-
-  // The cornerstone, an `each` implementation, aka `forEach`.
-  // Handles raw objects in addition to array-likes. Treats all
-  // sparse array-likes as if they were dense.
-  _.each = _.forEach = function(obj, iteratee, context) {
-    iteratee = optimizeCb(iteratee, context);
-    var i, length;
-    if (isArrayLike(obj)) {
-      for (i = 0, length = obj.length; i < length; i++) {
-        iteratee(obj[i], i, obj);
-      }
-    } else {
-      var keys = _.keys(obj);
-      for (i = 0, length = keys.length; i < length; i++) {
-        iteratee(obj[keys[i]], keys[i], obj);
-      }
-    }
-    return obj;
-  };
-
-  // Return the results of applying the iteratee to each element.
-  _.map = _.collect = function(obj, iteratee, context) {
-    iteratee = cb(iteratee, context);
-    var keys = !isArrayLike(obj) && _.keys(obj),
-        length = (keys || obj).length,
-        results = Array(length);
-    for (var index = 0; index < length; index++) {
-      var currentKey = keys ? keys[index] : index;
-      results[index] = iteratee(obj[currentKey], currentKey, obj);
-    }
-    return results;
-  };
-
-  // Create a reducing function iterating left or right.
-  function createReduce(dir) {
-    // Optimized iterator function as using arguments.length
-    // in the main function will deoptimize the, see #1991.
-    function iterator(obj, iteratee, memo, keys, index, length) {
-      for (; index >= 0 && index < length; index += dir) {
-        var currentKey = keys ? keys[index] : index;
-        memo = iteratee(memo, obj[currentKey], currentKey, obj);
-      }
-      return memo;
-    }
-
-    return function(obj, iteratee, memo, context) {
-      iteratee = optimizeCb(iteratee, context, 4);
-      var keys = !isArrayLike(obj) && _.keys(obj),
-          length = (keys || obj).length,
-          index = dir > 0 ? 0 : length - 1;
-      // Determine the initial value if none is provided.
-      if (arguments.length < 3) {
-        memo = obj[keys ? keys[index] : index];
-        index += dir;
-      }
-      return iterator(obj, iteratee, memo, keys, index, length);
-    };
-  }
-
-  // **Reduce** builds up a single result from a list of values, aka `inject`,
-  // or `foldl`.
-  _.reduce = _.foldl = _.inject = createReduce(1);
-
-  // The right-associative version of reduce, also known as `foldr`.
-  _.reduceRight = _.foldr = createReduce(-1);
-
-  // Return the first value which passes a truth test. Aliased as `detect`.
-  _.find = _.detect = function(obj, predicate, context) {
-    var key;
-    if (isArrayLike(obj)) {
-      key = _.findIndex(obj, predicate, context);
-    } else {
-      key = _.findKey(obj, predicate, context);
-    }
-    if (key !== void 0 && key !== -1) return obj[key];
-  };
-
-  // Return all the elements that pass a truth test.
-  // Aliased as `select`.
-  _.filter = _.select = function(obj, predicate, context) {
-    var results = [];
-    predicate = cb(predicate, context);
-    _.each(obj, function(value, index, list) {
-      if (predicate(value, index, list)) results.push(value);
-    });
-    return results;
-  };
-
-  // Return all the elements for which a truth test fails.
-  _.reject = function(obj, predicate, context) {
-    return _.filter(obj, _.negate(cb(predicate)), context);
-  };
-
-  // Determine whether all of the elements match a truth test.
-  // Aliased as `all`.
-  _.every = _.all = function(obj, predicate, context) {
-    predicate = cb(predicate, context);
-    var keys = !isArrayLike(obj) && _.keys(obj),
-        length = (keys || obj).length;
-    for (var index = 0; index < length; index++) {
-      var currentKey = keys ? keys[index] : index;
-      if (!predicate(obj[currentKey], currentKey, obj)) return false;
-    }
-    return true;
-  };
-
-  // Determine if at least one element in the object matches a truth test.
-  // Aliased as `any`.
-  _.some = _.any = function(obj, predicate, context) {
-    predicate = cb(predicate, context);
-    var keys = !isArrayLike(obj) && _.keys(obj),
-        length = (keys || obj).length;
-    for (var index = 0; index < length; index++) {
-      var currentKey = keys ? keys[index] : index;
-      if (predicate(obj[currentKey], currentKey, obj)) return true;
-    }
-    return false;
-  };
-
-  // Determine if the array or object contains a given item (using `===`).
-  // Aliased as `includes` and `include`.
-  _.contains = _.includes = _.include = function(obj, item, fromIndex, guard) {
-    if (!isArrayLike(obj)) obj = _.values(obj);
-    if (typeof fromIndex != 'number' || guard) fromIndex = 0;
-    return _.indexOf(obj, item, fromIndex) >= 0;
-  };
-
-  // Invoke a method (with arguments) on every item in a collection.
-  _.invoke = function(obj, method) {
-    var args = slice.call(arguments, 2);
-    var isFunc = _.isFunction(method);
-    return _.map(obj, function(value) {
-      var func = isFunc ? method : value[method];
-      return func == null ? func : func.apply(value, args);
-    });
-  };
-
-  // Convenience version of a common use case of `map`: fetching a property.
-  _.pluck = function(obj, key) {
-    return _.map(obj, _.property(key));
-  };
-
-  // Convenience version of a common use case of `filter`: selecting only objects
-  // containing specific `key:value` pairs.
-  _.where = function(obj, attrs) {
-    return _.filter(obj, _.matcher(attrs));
-  };
-
-  // Convenience version of a common use case of `find`: getting the first object
-  // containing specific `key:value` pairs.
-  _.findWhere = function(obj, attrs) {
-    return _.find(obj, _.matcher(attrs));
-  };
-
-  // Return the maximum element (or element-based computation).
-  _.max = function(obj, iteratee, context) {
-    var result = -Infinity, lastComputed = -Infinity,
-        value, computed;
-    if (iteratee == null && obj != null) {
-      obj = isArrayLike(obj) ? obj : _.values(obj);
-      for (var i = 0, length = obj.length; i < length; i++) {
-        value = obj[i];
-        if (value > result) {
-          result = value;
-        }
-      }
-    } else {
-      iteratee = cb(iteratee, context);
-      _.each(obj, function(value, index, list) {
-        computed = iteratee(value, index, list);
-        if (computed > lastComputed || computed === -Infinity && result === -Infinity) {
-          result = value;
-          lastComputed = computed;
-        }
-      });
-    }
-    return result;
-  };
-
-  // Return the minimum element (or element-based computation).
-  _.min = function(obj, iteratee, context) {
-    var result = Infinity, lastComputed = Infinity,
-        value, computed;
-    if (iteratee == null && obj != null) {
-      obj = isArrayLike(obj) ? obj : _.values(obj);
-      for (var i = 0, length = obj.length; i < length; i++) {
-        value = obj[i];
-        if (value < result) {
-          result = value;
-        }
-      }
-    } else {
-      iteratee = cb(iteratee, context);
-      _.each(obj, function(value, index, list) {
-        computed = iteratee(value, index, list);
-        if (computed < lastComputed || computed === Infinity && result === Infinity) {
-          result = value;
-          lastComputed = computed;
-        }
-      });
-    }
-    return result;
-  };
-
-  // Shuffle a collection, using the modern version of the
-  // [Fisher-Yates shuffle](http://en.wikipedia.org/wiki/Fisher–Yates_shuffle).
-  _.shuffle = function(obj) {
-    var set = isArrayLike(obj) ? obj : _.values(obj);
-    var length = set.length;
-    var shuffled = Array(length);
-    for (var index = 0, rand; index < length; index++) {
-      rand = _.random(0, index);
-      if (rand !== index) shuffled[index] = shuffled[rand];
-      shuffled[rand] = set[index];
-    }
-    return shuffled;
-  };
-
-  // Sample **n** random values from a collection.
-  // If **n** is not specified, returns a single random element.
-  // The internal `guard` argument allows it to work with `map`.
-  _.sample = function(obj, n, guard) {
-    if (n == null || guard) {
-      if (!isArrayLike(obj)) obj = _.values(obj);
-      return obj[_.random(obj.length - 1)];
-    }
-    return _.shuffle(obj).slice(0, Math.max(0, n));
-  };
-
-  // Sort the object's values by a criterion produced by an iteratee.
-  _.sortBy = function(obj, iteratee, context) {
-    iteratee = cb(iteratee, context);
-    return _.pluck(_.map(obj, function(value, index, list) {
-      return {
-        value: value,
-        index: index,
-        criteria: iteratee(value, index, list)
-      };
-    }).sort(function(left, right) {
-      var a = left.criteria;
-      var b = right.criteria;
-      if (a !== b) {
-        if (a > b || a === void 0) return 1;
-        if (a < b || b === void 0) return -1;
-      }
-      return left.index - right.index;
-    }), 'value');
-  };
-
-  // An internal function used for aggregate "group by" operations.
-  var group = function(behavior) {
-    return function(obj, iteratee, context) {
-      var result = {};
-      iteratee = cb(iteratee, context);
-      _.each(obj, function(value, index) {
-        var key = iteratee(value, index, obj);
-        behavior(result, value, key);
-      });
-      return result;
-    };
-  };
-
-  // Groups the object's values by a criterion. Pass either a string attribute
-  // to group by, or a function that returns the criterion.
-  _.groupBy = group(function(result, value, key) {
-    if (_.has(result, key)) result[key].push(value); else result[key] = [value];
-  });
-
-  // Indexes the object's values by a criterion, similar to `groupBy`, but for
-  // when you know that your index values will be unique.
-  _.indexBy = group(function(result, value, key) {
-    result[key] = value;
-  });
-
-  // Counts instances of an object that group by a certain criterion. Pass
-  // either a string attribute to count by, or a function that returns the
-  // criterion.
-  _.countBy = group(function(result, value, key) {
-    if (_.has(result, key)) result[key]++; else result[key] = 1;
-  });
-
-  // Safely create a real, live array from anything iterable.
-  _.toArray = function(obj) {
-    if (!obj) return [];
-    if (_.isArray(obj)) return slice.call(obj);
-    if (isArrayLike(obj)) return _.map(obj, _.identity);
-    return _.values(obj);
-  };
-
-  // Return the number of elements in an object.
-  _.size = function(obj) {
-    if (obj == null) return 0;
-    return isArrayLike(obj) ? obj.length : _.keys(obj).length;
-  };
-
-  // Split a collection into two arrays: one whose elements all satisfy the given
-  // predicate, and one whose elements all do not satisfy the predicate.
-  _.partition = function(obj, predicate, context) {
-    predicate = cb(predicate, context);
-    var pass = [], fail = [];
-    _.each(obj, function(value, key, obj) {
-      (predicate(value, key, obj) ? pass : fail).push(value);
-    });
-    return [pass, fail];
-  };
-
-  // Array Functions
-  // ---------------
-
-  // Get the first element of an array. Passing **n** will return the first N
-  // values in the array. Aliased as `head` and `take`. The **guard** check
-  // allows it to work with `_.map`.
-  _.first = _.head = _.take = function(array, n, guard) {
-    if (array == null) return void 0;
-    if (n == null || guard) return array[0];
-    return _.initial(array, array.length - n);
-  };
-
-  // Returns everything but the last entry of the array. Especially useful on
-  // the arguments object. Passing **n** will return all the values in
-  // the array, excluding the last N.
-  _.initial = function(array, n, guard) {
-    return slice.call(array, 0, Math.max(0, array.length - (n == null || guard ? 1 : n)));
-  };
-
-  // Get the last element of an array. Passing **n** will return the last N
-  // values in the array.
-  _.last = function(array, n, guard) {
-    if (array == null) return void 0;
-    if (n == null || guard) return array[array.length - 1];
-    return _.rest(array, Math.max(0, array.length - n));
-  };
-
-  // Returns everything but the first entry of the array. Aliased as `tail` and `drop`.
-  // Especially useful on the arguments object. Passing an **n** will return
-  // the rest N values in the array.
-  _.rest = _.tail = _.drop = function(array, n, guard) {
-    return slice.call(array, n == null || guard ? 1 : n);
-  };
-
-  // Trim out all falsy values from an array.
-  _.compact = function(array) {
-    return _.filter(array, _.identity);
-  };
-
-  // Internal implementation of a recursive `flatten` function.
-  var flatten = function(input, shallow, strict, startIndex) {
-    var output = [], idx = 0;
-    for (var i = startIndex || 0, length = getLength(input); i < length; i++) {
-      var value = input[i];
-      if (isArrayLike(value) && (_.isArray(value) || _.isArguments(value))) {
-        //flatten current level of array or arguments object
-        if (!shallow) value = flatten(value, shallow, strict);
-        var j = 0, len = value.length;
-        output.length += len;
-        while (j < len) {
-          output[idx++] = value[j++];
-        }
-      } else if (!strict) {
-        output[idx++] = value;
-      }
-    }
-    return output;
-  };
-
-  // Flatten out an array, either recursively (by default), or just one level.
-  _.flatten = function(array, shallow) {
-    return flatten(array, shallow, false);
-  };
-
-  // Return a version of the array that does not contain the specified value(s).
-  _.without = function(array) {
-    return _.difference(array, slice.call(arguments, 1));
-  };
-
-  // Produce a duplicate-free version of the array. If the array has already
-  // been sorted, you have the option of using a faster algorithm.
-  // Aliased as `unique`.
-  _.uniq = _.unique = function(array, isSorted, iteratee, context) {
-    if (!_.isBoolean(isSorted)) {
-      context = iteratee;
-      iteratee = isSorted;
-      isSorted = false;
-    }
-    if (iteratee != null) iteratee = cb(iteratee, context);
-    var result = [];
-    var seen = [];
-    for (var i = 0, length = getLength(array); i < length; i++) {
-      var value = array[i],
-          computed = iteratee ? iteratee(value, i, array) : value;
-      if (isSorted) {
-        if (!i || seen !== computed) result.push(value);
-        seen = computed;
-      } else if (iteratee) {
-        if (!_.contains(seen, computed)) {
-          seen.push(computed);
-          result.push(value);
-        }
-      } else if (!_.contains(result, value)) {
-        result.push(value);
-      }
-    }
-    return result;
-  };
-
-  // Produce an array that contains the union: each distinct element from all of
-  // the passed-in arrays.
-  _.union = function() {
-    return _.uniq(flatten(arguments, true, true));
-  };
-
-  // Produce an array that contains every item shared between all the
-  // passed-in arrays.
-  _.intersection = function(array) {
-    var result = [];
-    var argsLength = arguments.length;
-    for (var i = 0, length = getLength(array); i < length; i++) {
-      var item = array[i];
-      if (_.contains(result, item)) continue;
-      for (var j = 1; j < argsLength; j++) {
-        if (!_.contains(arguments[j], item)) break;
-      }
-      if (j === argsLength) result.push(item);
-    }
-    return result;
-  };
-
-  // Take the difference between one array and a number of other arrays.
-  // Only the elements present in just the first array will remain.
-  _.difference = function(array) {
-    var rest = flatten(arguments, true, true, 1);
-    return _.filter(array, function(value){
-      return !_.contains(rest, value);
-    });
-  };
-
-  // Zip together multiple lists into a single array -- elements that share
-  // an index go together.
-  _.zip = function() {
-    return _.unzip(arguments);
-  };
-
-  // Complement of _.zip. Unzip accepts an array of arrays and groups
-  // each array's elements on shared indices
-  _.unzip = function(array) {
-    var length = array && _.max(array, getLength).length || 0;
-    var result = Array(length);
-
-    for (var index = 0; index < length; index++) {
-      result[index] = _.pluck(array, index);
-    }
-    return result;
-  };
-
-  // Converts lists into objects. Pass either a single array of `[key, value]`
-  // pairs, or two parallel arrays of the same length -- one of keys, and one of
-  // the corresponding values.
-  _.object = function(list, values) {
-    var result = {};
-    for (var i = 0, length = getLength(list); i < length; i++) {
-      if (values) {
-        result[list[i]] = values[i];
-      } else {
-        result[list[i][0]] = list[i][1];
-      }
-    }
-    return result;
-  };
-
-  // Generator function to create the findIndex and findLastIndex functions
-  function createPredicateIndexFinder(dir) {
-    return function(array, predicate, context) {
-      predicate = cb(predicate, context);
-      var length = getLength(array);
-      var index = dir > 0 ? 0 : length - 1;
-      for (; index >= 0 && index < length; index += dir) {
-        if (predicate(array[index], index, array)) return index;
-      }
-      return -1;
-    };
-  }
-
-  // Returns the first index on an array-like that passes a predicate test
-  _.findIndex = createPredicateIndexFinder(1);
-  _.findLastIndex = createPredicateIndexFinder(-1);
-
-  // Use a comparator function to figure out the smallest index at which
-  // an object should be inserted so as to maintain order. Uses binary search.
-  _.sortedIndex = function(array, obj, iteratee, context) {
-    iteratee = cb(iteratee, context, 1);
-    var value = iteratee(obj);
-    var low = 0, high = getLength(array);
-    while (low < high) {
-      var mid = Math.floor((low + high) / 2);
-      if (iteratee(array[mid]) < value) low = mid + 1; else high = mid;
-    }
-    return low;
-  };
-
-  // Generator function to create the indexOf and lastIndexOf functions
-  function createIndexFinder(dir, predicateFind, sortedIndex) {
-    return function(array, item, idx) {
-      var i = 0, length = getLength(array);
-      if (typeof idx == 'number') {
-        if (dir > 0) {
-            i = idx >= 0 ? idx : Math.max(idx + length, i);
-        } else {
-            length = idx >= 0 ? Math.min(idx + 1, length) : idx + length + 1;
-        }
-      } else if (sortedIndex && idx && length) {
-        idx = sortedIndex(array, item);
-        return array[idx] === item ? idx : -1;
-      }
-      if (item !== item) {
-        idx = predicateFind(slice.call(array, i, length), _.isNaN);
-        return idx >= 0 ? idx + i : -1;
-      }
-      for (idx = dir > 0 ? i : length - 1; idx >= 0 && idx < length; idx += dir) {
-        if (array[idx] === item) return idx;
-      }
-      return -1;
-    };
-  }
-
-  // Return the position of the first occurrence of an item in an array,
-  // or -1 if the item is not included in the array.
-  // If the array is large and already in sort order, pass `true`
-  // for **isSorted** to use binary search.
-  _.indexOf = createIndexFinder(1, _.findIndex, _.sortedIndex);
-  _.lastIndexOf = createIndexFinder(-1, _.findLastIndex);
-
-  // Generate an integer Array containing an arithmetic progression. A port of
-  // the native Python `range()` function. See
-  // [the Python documentation](http://docs.python.org/library/functions.html#range).
-  _.range = function(start, stop, step) {
-    if (stop == null) {
-      stop = start || 0;
-      start = 0;
-    }
-    step = step || 1;
-
-    var length = Math.max(Math.ceil((stop - start) / step), 0);
-    var range = Array(length);
-
-    for (var idx = 0; idx < length; idx++, start += step) {
-      range[idx] = start;
-    }
-
-    return range;
-  };
-
-  // Function (ahem) Functions
-  // ------------------
-
-  // Determines whether to execute a function as a constructor
-  // or a normal function with the provided arguments
-  var executeBound = function(sourceFunc, boundFunc, context, callingContext, args) {
-    if (!(callingContext instanceof boundFunc)) return sourceFunc.apply(context, args);
-    var self = baseCreate(sourceFunc.prototype);
-    var result = sourceFunc.apply(self, args);
-    if (_.isObject(result)) return result;
-    return self;
-  };
-
-  // Create a function bound to a given object (assigning `this`, and arguments,
-  // optionally). Delegates to **ECMAScript 5**'s native `Function.bind` if
-  // available.
-  _.bind = function(func, context) {
-    if (nativeBind && func.bind === nativeBind) return nativeBind.apply(func, slice.call(arguments, 1));
-    if (!_.isFunction(func)) throw new TypeError('Bind must be called on a function');
-    var args = slice.call(arguments, 2);
-    var bound = function() {
-      return executeBound(func, bound, context, this, args.concat(slice.call(arguments)));
-    };
-    return bound;
-  };
-
-  // Partially apply a function by creating a version that has had some of its
-  // arguments pre-filled, without changing its dynamic `this` context. _ acts
-  // as a placeholder, allowing any combination of arguments to be pre-filled.
-  _.partial = function(func) {
-    var boundArgs = slice.call(arguments, 1);
-    var bound = function() {
-      var position = 0, length = boundArgs.length;
-      var args = Array(length);
-      for (var i = 0; i < length; i++) {
-        args[i] = boundArgs[i] === _ ? arguments[position++] : boundArgs[i];
-      }
-      while (position < arguments.length) args.push(arguments[position++]);
-      return executeBound(func, bound, this, this, args);
-    };
-    return bound;
-  };
-
-  // Bind a number of an object's methods to that object. Remaining arguments
-  // are the method names to be bound. Useful for ensuring that all callbacks
-  // defined on an object belong to it.
-  _.bindAll = function(obj) {
-    var i, length = arguments.length, key;
-    if (length <= 1) throw new Error('bindAll must be passed function names');
-    for (i = 1; i < length; i++) {
-      key = arguments[i];
-      obj[key] = _.bind(obj[key], obj);
-    }
-    return obj;
-  };
-
-  // Memoize an expensive function by storing its results.
-  _.memoize = function(func, hasher) {
-    var memoize = function(key) {
-      var cache = memoize.cache;
-      var address = '' + (hasher ? hasher.apply(this, arguments) : key);
-      if (!_.has(cache, address)) cache[address] = func.apply(this, arguments);
-      return cache[address];
-    };
-    memoize.cache = {};
-    return memoize;
-  };
-
-  // Delays a function for the given number of milliseconds, and then calls
-  // it with the arguments supplied.
-  _.delay = function(func, wait) {
-    var args = slice.call(arguments, 2);
-    return setTimeout(function(){
-      return func.apply(null, args);
-    }, wait);
-  };
-
-  // Defers a function, scheduling it to run after the current call stack has
-  // cleared.
-  _.defer = _.partial(_.delay, _, 1);
-
-  // Returns a function, that, when invoked, will only be triggered at most once
-  // during a given window of time. Normally, the throttled function will run
-  // as much as it can, without ever going more than once per `wait` duration;
-  // but if you'd like to disable the execution on the leading edge, pass
-  // `{leading: false}`. To disable execution on the trailing edge, ditto.
-  _.throttle = function(func, wait, options) {
-    var context, args, result;
-    var timeout = null;
-    var previous = 0;
-    if (!options) options = {};
-    var later = function() {
-      previous = options.leading === false ? 0 : _.now();
-      timeout = null;
-      result = func.apply(context, args);
-      if (!timeout) context = args = null;
-    };
-    return function() {
-      var now = _.now();
-      if (!previous && options.leading === false) previous = now;
-      var remaining = wait - (now - previous);
-      context = this;
-      args = arguments;
-      if (remaining <= 0 || remaining > wait) {
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = null;
-        }
-        previous = now;
-        result = func.apply(context, args);
-        if (!timeout) context = args = null;
-      } else if (!timeout && options.trailing !== false) {
-        timeout = setTimeout(later, remaining);
-      }
-      return result;
-    };
-  };
-
-  // Returns a function, that, as long as it continues to be invoked, will not
-  // be triggered. The function will be called after it stops being called for
-  // N milliseconds. If `immediate` is passed, trigger the function on the
-  // leading edge, instead of the trailing.
-  _.debounce = function(func, wait, immediate) {
-    var timeout, args, context, timestamp, result;
-
-    var later = function() {
-      var last = _.now() - timestamp;
-
-      if (last < wait && last >= 0) {
-        timeout = setTimeout(later, wait - last);
-      } else {
-        timeout = null;
-        if (!immediate) {
-          result = func.apply(context, args);
-          if (!timeout) context = args = null;
-        }
-      }
-    };
-
-    return function() {
-      context = this;
-      args = arguments;
-      timestamp = _.now();
-      var callNow = immediate && !timeout;
-      if (!timeout) timeout = setTimeout(later, wait);
-      if (callNow) {
-        result = func.apply(context, args);
-        context = args = null;
-      }
-
-      return result;
-    };
-  };
-
-  // Returns the first function passed as an argument to the second,
-  // allowing you to adjust arguments, run code before and after, and
-  // conditionally execute the original function.
-  _.wrap = function(func, wrapper) {
-    return _.partial(wrapper, func);
-  };
-
-  // Returns a negated version of the passed-in predicate.
-  _.negate = function(predicate) {
-    return function() {
-      return !predicate.apply(this, arguments);
-    };
-  };
-
-  // Returns a function that is the composition of a list of functions, each
-  // consuming the return value of the function that follows.
-  _.compose = function() {
-    var args = arguments;
-    var start = args.length - 1;
-    return function() {
-      var i = start;
-      var result = args[start].apply(this, arguments);
-      while (i--) result = args[i].call(this, result);
-      return result;
-    };
-  };
-
-  // Returns a function that will only be executed on and after the Nth call.
-  _.after = function(times, func) {
-    return function() {
-      if (--times < 1) {
-        return func.apply(this, arguments);
-      }
-    };
-  };
-
-  // Returns a function that will only be executed up to (but not including) the Nth call.
-  _.before = function(times, func) {
-    var memo;
-    return function() {
-      if (--times > 0) {
-        memo = func.apply(this, arguments);
-      }
-      if (times <= 1) func = null;
-      return memo;
-    };
-  };
-
-  // Returns a function that will be executed at most one time, no matter how
-  // often you call it. Useful for lazy initialization.
-  _.once = _.partial(_.before, 2);
-
-  // Object Functions
-  // ----------------
-
-  // Keys in IE < 9 that won't be iterated by `for key in ...` and thus missed.
-  var hasEnumBug = !{toString: null}.propertyIsEnumerable('toString');
-  var nonEnumerableProps = ['valueOf', 'isPrototypeOf', 'toString',
-                      'propertyIsEnumerable', 'hasOwnProperty', 'toLocaleString'];
-
-  function collectNonEnumProps(obj, keys) {
-    var nonEnumIdx = nonEnumerableProps.length;
-    var constructor = obj.constructor;
-    var proto = (_.isFunction(constructor) && constructor.prototype) || ObjProto;
-
-    // Constructor is a special case.
-    var prop = 'constructor';
-    if (_.has(obj, prop) && !_.contains(keys, prop)) keys.push(prop);
-
-    while (nonEnumIdx--) {
-      prop = nonEnumerableProps[nonEnumIdx];
-      if (prop in obj && obj[prop] !== proto[prop] && !_.contains(keys, prop)) {
-        keys.push(prop);
-      }
-    }
-  }
-
-  // Retrieve the names of an object's own properties.
-  // Delegates to **ECMAScript 5**'s native `Object.keys`
-  _.keys = function(obj) {
-    if (!_.isObject(obj)) return [];
-    if (nativeKeys) return nativeKeys(obj);
-    var keys = [];
-    for (var key in obj) if (_.has(obj, key)) keys.push(key);
-    // Ahem, IE < 9.
-    if (hasEnumBug) collectNonEnumProps(obj, keys);
-    return keys;
-  };
-
-  // Retrieve all the property names of an object.
-  _.allKeys = function(obj) {
-    if (!_.isObject(obj)) return [];
-    var keys = [];
-    for (var key in obj) keys.push(key);
-    // Ahem, IE < 9.
-    if (hasEnumBug) collectNonEnumProps(obj, keys);
-    return keys;
-  };
-
-  // Retrieve the values of an object's properties.
-  _.values = function(obj) {
-    var keys = _.keys(obj);
-    var length = keys.length;
-    var values = Array(length);
-    for (var i = 0; i < length; i++) {
-      values[i] = obj[keys[i]];
-    }
-    return values;
-  };
-
-  // Returns the results of applying the iteratee to each element of the object
-  // In contrast to _.map it returns an object
-  _.mapObject = function(obj, iteratee, context) {
-    iteratee = cb(iteratee, context);
-    var keys =  _.keys(obj),
-          length = keys.length,
-          results = {},
-          currentKey;
-      for (var index = 0; index < length; index++) {
-        currentKey = keys[index];
-        results[currentKey] = iteratee(obj[currentKey], currentKey, obj);
-      }
-      return results;
-  };
-
-  // Convert an object into a list of `[key, value]` pairs.
-  _.pairs = function(obj) {
-    var keys = _.keys(obj);
-    var length = keys.length;
-    var pairs = Array(length);
-    for (var i = 0; i < length; i++) {
-      pairs[i] = [keys[i], obj[keys[i]]];
-    }
-    return pairs;
-  };
-
-  // Invert the keys and values of an object. The values must be serializable.
-  _.invert = function(obj) {
-    var result = {};
-    var keys = _.keys(obj);
-    for (var i = 0, length = keys.length; i < length; i++) {
-      result[obj[keys[i]]] = keys[i];
-    }
-    return result;
-  };
-
-  // Return a sorted list of the function names available on the object.
-  // Aliased as `methods`
-  _.functions = _.methods = function(obj) {
-    var names = [];
-    for (var key in obj) {
-      if (_.isFunction(obj[key])) names.push(key);
-    }
-    return names.sort();
-  };
-
-  // Extend a given object with all the properties in passed-in object(s).
-  _.extend = createAssigner(_.allKeys);
-
-  // Assigns a given object with all the own properties in the passed-in object(s)
-  // (https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Object/assign)
-  _.extendOwn = _.assign = createAssigner(_.keys);
-
-  // Returns the first key on an object that passes a predicate test
-  _.findKey = function(obj, predicate, context) {
-    predicate = cb(predicate, context);
-    var keys = _.keys(obj), key;
-    for (var i = 0, length = keys.length; i < length; i++) {
-      key = keys[i];
-      if (predicate(obj[key], key, obj)) return key;
-    }
-  };
-
-  // Return a copy of the object only containing the whitelisted properties.
-  _.pick = function(object, oiteratee, context) {
-    var result = {}, obj = object, iteratee, keys;
-    if (obj == null) return result;
-    if (_.isFunction(oiteratee)) {
-      keys = _.allKeys(obj);
-      iteratee = optimizeCb(oiteratee, context);
-    } else {
-      keys = flatten(arguments, false, false, 1);
-      iteratee = function(value, key, obj) { return key in obj; };
-      obj = Object(obj);
-    }
-    for (var i = 0, length = keys.length; i < length; i++) {
-      var key = keys[i];
-      var value = obj[key];
-      if (iteratee(value, key, obj)) result[key] = value;
-    }
-    return result;
-  };
-
-   // Return a copy of the object without the blacklisted properties.
-  _.omit = function(obj, iteratee, context) {
-    if (_.isFunction(iteratee)) {
-      iteratee = _.negate(iteratee);
-    } else {
-      var keys = _.map(flatten(arguments, false, false, 1), String);
-      iteratee = function(value, key) {
-        return !_.contains(keys, key);
-      };
-    }
-    return _.pick(obj, iteratee, context);
-  };
-
-  // Fill in a given object with default properties.
-  _.defaults = createAssigner(_.allKeys, true);
-
-  // Creates an object that inherits from the given prototype object.
-  // If additional properties are provided then they will be added to the
-  // created object.
-  _.create = function(prototype, props) {
-    var result = baseCreate(prototype);
-    if (props) _.extendOwn(result, props);
-    return result;
-  };
-
-  // Create a (shallow-cloned) duplicate of an object.
-  _.clone = function(obj) {
-    if (!_.isObject(obj)) return obj;
-    return _.isArray(obj) ? obj.slice() : _.extend({}, obj);
-  };
-
-  // Invokes interceptor with the obj, and then returns obj.
-  // The primary purpose of this method is to "tap into" a method chain, in
-  // order to perform operations on intermediate results within the chain.
-  _.tap = function(obj, interceptor) {
-    interceptor(obj);
-    return obj;
-  };
-
-  // Returns whether an object has a given set of `key:value` pairs.
-  _.isMatch = function(object, attrs) {
-    var keys = _.keys(attrs), length = keys.length;
-    if (object == null) return !length;
-    var obj = Object(object);
-    for (var i = 0; i < length; i++) {
-      var key = keys[i];
-      if (attrs[key] !== obj[key] || !(key in obj)) return false;
-    }
-    return true;
-  };
-
-
-  // Internal recursive comparison function for `isEqual`.
-  var eq = function(a, b, aStack, bStack) {
-    // Identical objects are equal. `0 === -0`, but they aren't identical.
-    // See the [Harmony `egal` proposal](http://wiki.ecmascript.org/doku.php?id=harmony:egal).
-    if (a === b) return a !== 0 || 1 / a === 1 / b;
-    // A strict comparison is necessary because `null == undefined`.
-    if (a == null || b == null) return a === b;
-    // Unwrap any wrapped objects.
-    if (a instanceof _) a = a._wrapped;
-    if (b instanceof _) b = b._wrapped;
-    // Compare `[[Class]]` names.
-    var className = toString.call(a);
-    if (className !== toString.call(b)) return false;
-    switch (className) {
-      // Strings, numbers, regular expressions, dates, and booleans are compared by value.
-      case '[object RegExp]':
-      // RegExps are coerced to strings for comparison (Note: '' + /a/i === '/a/i')
-      case '[object String]':
-        // Primitives and their corresponding object wrappers are equivalent; thus, `"5"` is
-        // equivalent to `new String("5")`.
-        return '' + a === '' + b;
-      case '[object Number]':
-        // `NaN`s are equivalent, but non-reflexive.
-        // Object(NaN) is equivalent to NaN
-        if (+a !== +a) return +b !== +b;
-        // An `egal` comparison is performed for other numeric values.
-        return +a === 0 ? 1 / +a === 1 / b : +a === +b;
-      case '[object Date]':
-      case '[object Boolean]':
-        // Coerce dates and booleans to numeric primitive values. Dates are compared by their
-        // millisecond representations. Note that invalid dates with millisecond representations
-        // of `NaN` are not equivalent.
-        return +a === +b;
-    }
-
-    var areArrays = className === '[object Array]';
-    if (!areArrays) {
-      if (typeof a != 'object' || typeof b != 'object') return false;
-
-      // Objects with different constructors are not equivalent, but `Object`s or `Array`s
-      // from different frames are.
-      var aCtor = a.constructor, bCtor = b.constructor;
-      if (aCtor !== bCtor && !(_.isFunction(aCtor) && aCtor instanceof aCtor &&
-                               _.isFunction(bCtor) && bCtor instanceof bCtor)
-                          && ('constructor' in a && 'constructor' in b)) {
-        return false;
-      }
-    }
-    // Assume equality for cyclic structures. The algorithm for detecting cyclic
-    // structures is adapted from ES 5.1 section 15.12.3, abstract operation `JO`.
-
-    // Initializing stack of traversed objects.
-    // It's done here since we only need them for objects and arrays comparison.
-    aStack = aStack || [];
-    bStack = bStack || [];
-    var length = aStack.length;
-    while (length--) {
-      // Linear search. Performance is inversely proportional to the number of
-      // unique nested structures.
-      if (aStack[length] === a) return bStack[length] === b;
-    }
-
-    // Add the first object to the stack of traversed objects.
-    aStack.push(a);
-    bStack.push(b);
-
-    // Recursively compare objects and arrays.
-    if (areArrays) {
-      // Compare array lengths to determine if a deep comparison is necessary.
-      length = a.length;
-      if (length !== b.length) return false;
-      // Deep compare the contents, ignoring non-numeric properties.
-      while (length--) {
-        if (!eq(a[length], b[length], aStack, bStack)) return false;
-      }
-    } else {
-      // Deep compare objects.
-      var keys = _.keys(a), key;
-      length = keys.length;
-      // Ensure that both objects contain the same number of properties before comparing deep equality.
-      if (_.keys(b).length !== length) return false;
-      while (length--) {
-        // Deep compare each member
-        key = keys[length];
-        if (!(_.has(b, key) && eq(a[key], b[key], aStack, bStack))) return false;
-      }
-    }
-    // Remove the first object from the stack of traversed objects.
-    aStack.pop();
-    bStack.pop();
-    return true;
-  };
-
-  // Perform a deep comparison to check if two objects are equal.
-  _.isEqual = function(a, b) {
-    return eq(a, b);
-  };
-
-  // Is a given array, string, or object empty?
-  // An "empty" object has no enumerable own-properties.
-  _.isEmpty = function(obj) {
-    if (obj == null) return true;
-    if (isArrayLike(obj) && (_.isArray(obj) || _.isString(obj) || _.isArguments(obj))) return obj.length === 0;
-    return _.keys(obj).length === 0;
-  };
-
-  // Is a given value a DOM element?
-  _.isElement = function(obj) {
-    return !!(obj && obj.nodeType === 1);
-  };
-
-  // Is a given value an array?
-  // Delegates to ECMA5's native Array.isArray
-  _.isArray = nativeIsArray || function(obj) {
-    return toString.call(obj) === '[object Array]';
-  };
-
-  // Is a given variable an object?
-  _.isObject = function(obj) {
-    var type = typeof obj;
-    return type === 'function' || type === 'object' && !!obj;
-  };
-
-  // Add some isType methods: isArguments, isFunction, isString, isNumber, isDate, isRegExp, isError.
-  _.each(['Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp', 'Error'], function(name) {
-    _['is' + name] = function(obj) {
-      return toString.call(obj) === '[object ' + name + ']';
-    };
-  });
-
-  // Define a fallback version of the method in browsers (ahem, IE < 9), where
-  // there isn't any inspectable "Arguments" type.
-  if (!_.isArguments(arguments)) {
-    _.isArguments = function(obj) {
-      return _.has(obj, 'callee');
-    };
-  }
-
-  // Optimize `isFunction` if appropriate. Work around some typeof bugs in old v8,
-  // IE 11 (#1621), and in Safari 8 (#1929).
-  if (typeof /./ != 'function' && typeof Int8Array != 'object') {
-    _.isFunction = function(obj) {
-      return typeof obj == 'function' || false;
-    };
-  }
-
-  // Is a given object a finite number?
-  _.isFinite = function(obj) {
-    return isFinite(obj) && !isNaN(parseFloat(obj));
-  };
-
-  // Is the given value `NaN`? (NaN is the only number which does not equal itself).
-  _.isNaN = function(obj) {
-    return _.isNumber(obj) && obj !== +obj;
-  };
-
-  // Is a given value a boolean?
-  _.isBoolean = function(obj) {
-    return obj === true || obj === false || toString.call(obj) === '[object Boolean]';
-  };
-
-  // Is a given value equal to null?
-  _.isNull = function(obj) {
-    return obj === null;
-  };
-
-  // Is a given variable undefined?
-  _.isUndefined = function(obj) {
-    return obj === void 0;
-  };
-
-  // Shortcut function for checking if an object has a given property directly
-  // on itself (in other words, not on a prototype).
-  _.has = function(obj, key) {
-    return obj != null && hasOwnProperty.call(obj, key);
-  };
-
-  // Utility Functions
-  // -----------------
-
-  // Run Underscore.js in *noConflict* mode, returning the `_` variable to its
-  // previous owner. Returns a reference to the Underscore object.
-  _.noConflict = function() {
-    root._ = previousUnderscore;
-    return this;
-  };
-
-  // Keep the identity function around for default iteratees.
-  _.identity = function(value) {
-    return value;
-  };
-
-  // Predicate-generating functions. Often useful outside of Underscore.
-  _.constant = function(value) {
-    return function() {
-      return value;
-    };
-  };
-
-  _.noop = function(){};
-
-  _.property = property;
-
-  // Generates a function for a given object that returns a given property.
-  _.propertyOf = function(obj) {
-    return obj == null ? function(){} : function(key) {
-      return obj[key];
-    };
-  };
-
-  // Returns a predicate for checking whether an object has a given set of
-  // `key:value` pairs.
-  _.matcher = _.matches = function(attrs) {
-    attrs = _.extendOwn({}, attrs);
-    return function(obj) {
-      return _.isMatch(obj, attrs);
-    };
-  };
-
-  // Run a function **n** times.
-  _.times = function(n, iteratee, context) {
-    var accum = Array(Math.max(0, n));
-    iteratee = optimizeCb(iteratee, context, 1);
-    for (var i = 0; i < n; i++) accum[i] = iteratee(i);
-    return accum;
-  };
-
-  // Return a random integer between min and max (inclusive).
-  _.random = function(min, max) {
-    if (max == null) {
-      max = min;
-      min = 0;
-    }
-    return min + Math.floor(Math.random() * (max - min + 1));
-  };
-
-  // A (possibly faster) way to get the current timestamp as an integer.
-  _.now = Date.now || function() {
-    return new Date().getTime();
-  };
-
-   // List of HTML entities for escaping.
-  var escapeMap = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#x27;',
-    '`': '&#x60;'
-  };
-  var unescapeMap = _.invert(escapeMap);
-
-  // Functions for escaping and unescaping strings to/from HTML interpolation.
-  var createEscaper = function(map) {
-    var escaper = function(match) {
-      return map[match];
-    };
-    // Regexes for identifying a key that needs to be escaped
-    var source = '(?:' + _.keys(map).join('|') + ')';
-    var testRegexp = RegExp(source);
-    var replaceRegexp = RegExp(source, 'g');
-    return function(string) {
-      string = string == null ? '' : '' + string;
-      return testRegexp.test(string) ? string.replace(replaceRegexp, escaper) : string;
-    };
-  };
-  _.escape = createEscaper(escapeMap);
-  _.unescape = createEscaper(unescapeMap);
-
-  // If the value of the named `property` is a function then invoke it with the
-  // `object` as context; otherwise, return it.
-  _.result = function(object, property, fallback) {
-    var value = object == null ? void 0 : object[property];
-    if (value === void 0) {
-      value = fallback;
-    }
-    return _.isFunction(value) ? value.call(object) : value;
-  };
-
-  // Generate a unique integer id (unique within the entire client session).
-  // Useful for temporary DOM ids.
-  var idCounter = 0;
-  _.uniqueId = function(prefix) {
-    var id = ++idCounter + '';
-    return prefix ? prefix + id : id;
-  };
-
-  // By default, Underscore uses ERB-style template delimiters, change the
-  // following template settings to use alternative delimiters.
-  _.templateSettings = {
-    evaluate    : /<%([\s\S]+?)%>/g,
-    interpolate : /<%=([\s\S]+?)%>/g,
-    escape      : /<%-([\s\S]+?)%>/g
-  };
-
-  // When customizing `templateSettings`, if you don't want to define an
-  // interpolation, evaluation or escaping regex, we need one that is
-  // guaranteed not to match.
-  var noMatch = /(.)^/;
-
-  // Certain characters need to be escaped so that they can be put into a
-  // string literal.
-  var escapes = {
-    "'":      "'",
-    '\\':     '\\',
-    '\r':     'r',
-    '\n':     'n',
-    '\u2028': 'u2028',
-    '\u2029': 'u2029'
-  };
-
-  var escaper = /\\|'|\r|\n|\u2028|\u2029/g;
-
-  var escapeChar = function(match) {
-    return '\\' + escapes[match];
-  };
-
-  // JavaScript micro-templating, similar to John Resig's implementation.
-  // Underscore templating handles arbitrary delimiters, preserves whitespace,
-  // and correctly escapes quotes within interpolated code.
-  // NB: `oldSettings` only exists for backwards compatibility.
-  _.template = function(text, settings, oldSettings) {
-    if (!settings && oldSettings) settings = oldSettings;
-    settings = _.defaults({}, settings, _.templateSettings);
-
-    // Combine delimiters into one regular expression via alternation.
-    var matcher = RegExp([
-      (settings.escape || noMatch).source,
-      (settings.interpolate || noMatch).source,
-      (settings.evaluate || noMatch).source
-    ].join('|') + '|$', 'g');
-
-    // Compile the template source, escaping string literals appropriately.
-    var index = 0;
-    var source = "__p+='";
-    text.replace(matcher, function(match, escape, interpolate, evaluate, offset) {
-      source += text.slice(index, offset).replace(escaper, escapeChar);
-      index = offset + match.length;
-
-      if (escape) {
-        source += "'+\n((__t=(" + escape + "))==null?'':_.escape(__t))+\n'";
-      } else if (interpolate) {
-        source += "'+\n((__t=(" + interpolate + "))==null?'':__t)+\n'";
-      } else if (evaluate) {
-        source += "';\n" + evaluate + "\n__p+='";
-      }
-
-      // Adobe VMs need the match returned to produce the correct offest.
-      return match;
-    });
-    source += "';\n";
-
-    // If a variable is not specified, place data values in local scope.
-    if (!settings.variable) source = 'with(obj||{}){\n' + source + '}\n';
-
-    source = "var __t,__p='',__j=Array.prototype.join," +
-      "print=function(){__p+=__j.call(arguments,'');};\n" +
-      source + 'return __p;\n';
-
-    try {
-      var render = new Function(settings.variable || 'obj', '_', source);
-    } catch (e) {
-      e.source = source;
-      throw e;
-    }
-
-    var template = function(data) {
-      return render.call(this, data, _);
-    };
-
-    // Provide the compiled source as a convenience for precompilation.
-    var argument = settings.variable || 'obj';
-    template.source = 'function(' + argument + '){\n' + source + '}';
-
-    return template;
-  };
-
-  // Add a "chain" function. Start chaining a wrapped Underscore object.
-  _.chain = function(obj) {
-    var instance = _(obj);
-    instance._chain = true;
-    return instance;
-  };
-
-  // OOP
-  // ---------------
-  // If Underscore is called as a function, it returns a wrapped object that
-  // can be used OO-style. This wrapper holds altered versions of all the
-  // underscore functions. Wrapped objects may be chained.
-
-  // Helper function to continue chaining intermediate results.
-  var result = function(instance, obj) {
-    return instance._chain ? _(obj).chain() : obj;
-  };
-
-  // Add your own custom functions to the Underscore object.
-  _.mixin = function(obj) {
-    _.each(_.functions(obj), function(name) {
-      var func = _[name] = obj[name];
-      _.prototype[name] = function() {
-        var args = [this._wrapped];
-        push.apply(args, arguments);
-        return result(this, func.apply(_, args));
-      };
-    });
-  };
-
-  // Add all of the Underscore functions to the wrapper object.
-  _.mixin(_);
-
-  // Add all mutator Array functions to the wrapper.
-  _.each(['pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift'], function(name) {
-    var method = ArrayProto[name];
-    _.prototype[name] = function() {
-      var obj = this._wrapped;
-      method.apply(obj, arguments);
-      if ((name === 'shift' || name === 'splice') && obj.length === 0) delete obj[0];
-      return result(this, obj);
-    };
-  });
-
-  // Add all accessor Array functions to the wrapper.
-  _.each(['concat', 'join', 'slice'], function(name) {
-    var method = ArrayProto[name];
-    _.prototype[name] = function() {
-      return result(this, method.apply(this._wrapped, arguments));
-    };
-  });
-
-  // Extracts the result from a wrapped and chained object.
-  _.prototype.value = function() {
-    return this._wrapped;
-  };
-
-  // Provide unwrapping proxy for some methods used in engine operations
-  // such as arithmetic and JSON stringification.
-  _.prototype.valueOf = _.prototype.toJSON = _.prototype.value;
-
-  _.prototype.toString = function() {
-    return '' + this._wrapped;
-  };
-
-  // AMD registration happens at the end for compatibility with AMD loaders
-  // that may not enforce next-turn semantics on modules. Even though general
-  // practice for AMD registration is to be anonymous, underscore registers
-  // as a named module because, like jQuery, it is a base library that is
-  // popular enough to be bundled in a third party lib, but not be part of
-  // an AMD load request. Those cases could generate an error when an
-  // anonymous define() is called outside of a loader request.
-  if (typeof define === 'function' && define.amd) {
-    define('underscore', [], function() {
-      return _;
-    });
-  }
-}.call(this));
-
-},{}],36:[function(require,module,exports){
-'use strict';
-var Constants = {};
-Constants.DefaultTakeItemsCount = 50;
-Constants.ExpandExpressionName = 'Expand';
-Constants.ReturnAsFieldName = 'ReturnAs';
-Constants.FieldsExpressionName = 'Fields';
-Constants.SingleFieldExpressionName = 'SingleField';
-Constants.SortExpressionName = 'Sort';
-Constants.FilterExpressionName = 'Filter';
-Constants.SkipExpressionName = 'Skip';
-Constants.TakeExpressionName = 'Take';
-Constants.ParentRelationFieldName = 'ParentRelationField';
-Constants.IdFieldNameClient = 'Id';
-Constants.TargetTypeNameFieldName = 'TargetTypeName';
-
-module.exports = Constants;
-},{}],37:[function(require,module,exports){
-'use strict';
-var Constants = require('./Constants');
-
-/**
- * A class that is used to get all required information in order to process a set of relations.
- * @param parent - An ExecutionNode instance used to supply the tree like data structure.
- * @param relationNode - The relation node used to created the ExecutionNode instance (ExecutionNode instance should contain one or many relations
- * if they can be combined for batch execution).
- * @constructor
- */
-var ExecutionNode = function (parent, relationNode) {
-    var parentPath = '';
-    if (parent) {
-        parentPath = parent.path;
-    }
-    this.parent = parentPath;
-    this.relations = [relationNode.path];
-    this.name = relationNode.path;
-    this.targetTypeName = relationNode.targetTypeName;
-    this.canAddOtherRelations = !relationNode.filterExpression && !relationNode.sortExpression && !relationNode.take && !relationNode.skip;
-    this.children = [];
-    var path = '';
-    if (parentPath) {
-        path += parentPath + '.';
-    }
-    path += relationNode.targetTypeName;
-    this.path = path;
-};
-
-/**
- * Inserts a RelationNode to an ExecutionNode.
- * @param relation - A Relation instance.
- */
-ExecutionNode.prototype.insertRelationNode = function (relation) {
-    this.relations.push(relation.path);
-};
-
-/**
- * Inserts a child node (which relations) depends from parent node result.
- * @param child - ExecutionNode instance representing child node.
- */
-ExecutionNode.prototype.insertChildrenNode = function (child) {
-    this.children.push(child.name);
-};
-
-/**
- * Helper method that checks if some relations could be combined (for example have same TargetType).
- * @param relation
- * @returns {boolean}
- */
-ExecutionNode.prototype.canCombineWithRelation = function (relation) {
-    if (!this.canAddOtherRelations) {
-        return false;
-    }
-
-    return this.targetTypeName === relation.targetTypeName && !relation.filterExpression && !relation.sortExpression && !relation.take && !relation.skip;
-};
-
-/** ExecutionTree
- * Class that allows the creation of an execution tree from a relationTree. Used to process all queries (master and child) in a correct order.
- * @param relationTree - An instance of relation tree.
- * @constructor
- */
-var ExecutionTree = function (relationTree) {
-    this._relationTree = relationTree;
-    this._map = {};
-};
-
-/**
- * Adds execution node to the ExecutionTree.
- * @param executionNode
- */
-ExecutionTree.prototype.addExecutionNode = function (executionNode) {
-    this._map[executionNode.name] = executionNode;
-};
-
-/**
- * Finds the ExecutionNode which contains the requested relation.
- * @param relation - A Relation instance.
- * @returns {*}
- */
-ExecutionTree.prototype.getExecutionNodeOfRelation = function (relation) {
-    for (var execNode in this._map) {
-        if (this._map.hasOwnProperty(execNode)) {
-            if (this._map[execNode].relations.indexOf(relation) > -1) {
-                return this._map[execNode];
-            }
-        }
-    }
-    return null;
-};
-
-/**
- * Finds a RelationNode within the RelationTree.
- * @param relation - String that represents the relation within the RelationTree (for example: Activities.Likes.Role).
- * @returns {*}
- */
-ExecutionTree.prototype.getRelationNode = function (relation) {
-    if (relation) {
-        return this._relationTree[relation] || null;
-    } else {
-        return null;
-    }
-};
-
-ExecutionTree.prototype.getRootRelationNode = function () {
-    return this._relationTree[this._relationTree.$root] || null;
-};
-/**
- * Builds the ExecutionTree from a RelationTree.
- */
-ExecutionTree.prototype.build = function () {
-    //build beginning from the root
-    var relationRoot = this.getRelationNode(this._relationTree.$root);
-    //Setup the root of the execution tree.
-    var rootExecutionNode = new ExecutionNode(null, relationRoot);//no parent node
-    this.addExecutionNode(rootExecutionNode);
-    this.buildInternal(relationRoot);
-};
-
-/**
- * Traverse the relation tree and build the execution tree.
- * @param relationRoot - The root node of the RelationTree.
- */
-ExecutionTree.prototype.buildInternal = function (relationRoot) {
-    relationRoot.children.forEach(function (child) {
-        var childRelationNode = this.getRelationNode(child);
-        this.insertRelationNodeInExecutionTree(childRelationNode);
-        this.buildInternal(childRelationNode);
-    }, this);
-};
-
-/**
- * Inserts a relation node within the execution tree (based on its dependencies).
- * @param relation - The relation that will be inserted.
- */
-ExecutionTree.prototype.insertRelationNodeInExecutionTree = function (relation) {
-    var rootExecutionNode = this.getExecutionNodeOfRelation(relation.parent);
-    var childToCombine = this.tryGetChildNodeToCombine(rootExecutionNode, relation);
-    if (childToCombine) {//if there is a child that we combine the relation
-        childToCombine.insertRelationNode(relation);
-    } else {
-        var newExecutionNode = new ExecutionNode(rootExecutionNode, relation);//create a separate execution node that will host the relation
-        rootExecutionNode.insertChildrenNode(newExecutionNode);
-        this.addExecutionNode(newExecutionNode);
-    }
-};
-
-/**
- * Tries to find an ExecutionNode which could be combined with a relation.
- * @param rootExecutionNode - The root node of the ExecutionTree.
- * @param relation - Relation that will be added to the ExecutionTree.
- * @returns {*}
- */
-ExecutionTree.prototype.tryGetChildNodeToCombine = function (rootExecutionNode, relation) {
-    if (rootExecutionNode.canCombineWithRelation(relation)) {
-        return rootExecutionNode;
-    }
-    var children = rootExecutionNode.children;
-    for (var i = 0; i < children.length; i++) {
-        var child = this._map[children[i]];
-        var childToCombine = this.tryGetChildNodeToCombine(child, relation);
-        if (childToCombine) {
-            return childToCombine;
-        }
-    }
-    return null;
-};
-
-/**
- * Gets the filter expression from all relations inside an ExecutionNode.
- * @param executionNode - The ExecutionNode instance.
- * @returns {{}}
- */
-ExecutionTree.prototype.getFilterFromExecutionNode = function (executionNode, includeArrays) {
-    var filter = {};
-    var subRelationsFilter = [];
-    for (var i = 0; i < executionNode.relations.length; i++) {
-        var innerFilter = this.getFilterFromSingleRelation(this._relationTree[executionNode.relations[i]], includeArrays);
-        if (innerFilter) {
-            subRelationsFilter.push(innerFilter);
-        }
-    }
-
-    if (subRelationsFilter.length > 1) {
-        filter.$or = subRelationsFilter;
-    } else if (subRelationsFilter.length > 0) {
-        filter = subRelationsFilter[0];
-    } else {
-        filter = null;
-    }
-    return filter;
-};
-
-/**
- * Gets filter expression from a single relation. Traverse the relation tree in order to get the "Id"s from the result of parent relation
- * along with user defined filters.
- * @param relation - A Relation instance.
- * @returns {*}
- */
-ExecutionTree.prototype.getFilterFromSingleRelation = function (relation, includeArrays) {
-    var userDefinedFilter = relation.filterExpression;
-    var parentRelationFilter = {};
-    var parentRelationIds = this.getRelationFieldValues(relation, includeArrays);
-    var parentRelationFieldName = (relation.isInvertedRelation ? relation.relationField : Constants.IdFieldNameClient);
-
-    if (parentRelationIds.length > 0) {
-        parentRelationFilter[parentRelationFieldName] = {'$in': parentRelationIds};
-    } else {
-        return null;
-    }
-
-    if (userDefinedFilter !== undefined) {
-        var filters = [];
-        filters.push(parentRelationFilter);
-        filters.push(userDefinedFilter);
-        return {'$and': filters};
-    } else {
-        return parentRelationFilter;
-    }
-};
-
-/**
- * Get relation field values of parent relation in order to construct a proper filter (to create a relation).
- * @param relation - A relation instance which will get the filter.
- * @param includeArrays - Whether to include array valus of the parent items when calculating the items that will be expanded on the current level.
- * @returns {Array} - An array of relation field values.
- */
-ExecutionTree.prototype.getRelationFieldValues = function (relation, includeArrays) {
-    var parentRelationIds = [];
-    var parentRelation = this._relationTree[relation.parent];
-    // parentRelationResult actually is an Activity or Array of Activities
-    var parentRelationResult = Array.isArray(parentRelation.result) ? parentRelation.result : [parentRelation.result];
-    if (relation.isInvertedRelation) {
-        for (var p = 0; p < parentRelationResult.length; p++) {
-            parentRelationIds.push(parentRelationResult[p][relation.parentRelationField]);
-        }
-    } else {
-        // all comments are related to expand of type content type Activities expand: {"Likes": true}
-        if (parentRelation && parentRelation.result) {
-            relation.parentRelationIds = relation.parentRelationIds || {};
-            for (var i = 0; i < parentRelationResult.length; i++) {
-                // itemFromParentRelation is single Activity
-                var itemFromParentRelation = parentRelationResult[i];
-
-                // parentRelationFieldValue is Activity.Likes
-                var parentRelationFieldValue = itemFromParentRelation[relation.relationField];
-                if (Array.isArray(parentRelationFieldValue)) {
-                    relation.hasArrayValues = true;
-                    if (includeArrays) {
-                        for (var j = 0; j < parentRelationFieldValue.length; j++) {
-                            // itemToExpandId is current value in Activity.Likes array or just a single "Id"
-                            var itemToExpandId = parentRelationFieldValue[j];
-                            if(itemToExpandId !== undefined && itemToExpandId !== null) {
-                                parentRelationIds.push(itemToExpandId);
-                                // we set any value just to create a map of Ids
-                                relation.parentRelationIds[itemToExpandId] = 1;
-                            }
-                        }
-                    }
-                } else {
-                    if(parentRelationFieldValue !== undefined && parentRelationFieldValue !== null) {
-                        parentRelationIds.push(parentRelationFieldValue);
-                        relation.parentRelationIds[parentRelationFieldValue] = 1;
-                    }
-                }
-            }
-        }
-    }
-
-    return parentRelationIds;
-};
-
-module.exports = ExecutionTree;
-
-},{"./Constants":36}],38:[function(require,module,exports){
-'use strict';
-function ExpandError(message) {
-    this.name = 'ExpandError';
-    this.message = message;
-    this.stack = (new Error()).stack;
-}
-ExpandError.prototype = new Error;
-module.exports = ExpandError;
-},{}],39:[function(require,module,exports){
-'use strict';
-var async = require('async');
-var RelationTreeBuilder = require('./RelationTreeBuilder');
-var ExecutionTree = require('./ExecutionTree');
-var Constants = require('./Constants');
-var ExpandError = require('./ExpandError');
-
-function Processor(options) {
-    this._executionNodeFunction = options.executionNodeFunction;
-    this._metadataProviderFunction = options.metadataProviderFunction;
-}
-
-Processor.prototype._getExecutionTreeRoot = function (executionTree) {
-    var executionTreeRoot = null;
-    for (var exNode in executionTree) {
-        if (executionTree.hasOwnProperty(exNode)) {
-            if (executionTree[exNode].parent === '') {
-                executionTreeRoot = executionTree[exNode];
-                break;
-            }
-        }
-    }
-    return executionTreeRoot;
-};
-
-Processor.prototype._createExecuteNodeExecutor = function (relationsTree, executionTree, executionNode, expandContext) {
-    var self = this;
-    var relationsTreeMap = relationsTree.map;
-    return function (done) {
-        var relationNode = executionTree.getRelationNode(executionNode.relations[0]);//get the relation node for the only relation of the execution node.
-        var parentRelationNode = executionTree.getRelationNode(relationNode.parent);
-        var includeArrays = !(parentRelationNode.parent && parentRelationNode.hasArrayValues); //only expand array fields if the parent relation is not an array. This means that if we have expanded a Likes (multiple to Users), we won't expand any array relations that are nested in it such as the UserComments (multiple relation to Comments).
-        var filter = executionTree.getFilterFromExecutionNode(executionNode, includeArrays);
-
-        var errorMessage = relationsTree.validateSingleRelation(relationNode);
-        if (errorMessage) {
-            return done(new ExpandError(errorMessage));
-        }
-
-        // if we have such options executionNode should have only one relation.
-        var node = {};
-        node.select = relationNode.fieldsExpression;
-        node.sort = relationNode.sortExpression;
-        node.skip = relationNode.skip;
-        node.take = relationNode.take;
-        node.filter = filter;
-        node.targetTypeName = relationNode.targetTypeName;
-
-        self._executionNodeFunction.call(null, node, expandContext, function onProcessExecutionNode(err, result) {
-            if (err) {
-                return done(err);
-            }
-
-            for (var i = 0; i < executionNode.relations.length; i++) {
-                var childRelation = relationsTreeMap[executionNode.relations[i]];
-                childRelation.result = self._extractResultForRelation(relationsTreeMap[executionNode.relations[i]], result);
-            }
-            executionNode.result = childRelation.result;
-            var arr = [];
-            for (var j = 0; j < executionNode.children.length; j++) {
-                var executionTreeMap = executionTree._map;
-                arr.push(self._createExecuteNodeExecutor(relationsTree, executionTree, executionTreeMap[executionNode.children[j]], expandContext));
-            }
-            async.parallel(arr, done);
-        });
-    };
-};
-
-Processor.prototype._getSingleResult = function (relationsTree, relation, singleObject) {
-    if (!singleObject) {
-        return null;
-    }
-
-    var childRelation;
-    var childItem;
-
-    // if relation has singleFieldName option we just replace the parent id with a single value
-    if (relation.singleFieldName) {
-        if (relation.children && relation.children.length > 0) {
-            childRelation = relationsTree[relation.children[0]];
-            childItem = this._getObjectByIdFromArray(childRelation.result, singleObject[relation.singleFieldName]);
-            return this._getSingleResult(relationsTree, childRelation, childItem);
-        }
-        return singleObject[relation.singleFieldName];
-    }
-
-    var result = {};
-    var passedProperties = {};
-
-    if (relation.children && relation.children.length > 0) {
-        for (var j = 0; j < relation.children.length; j++) {
-            childRelation = relationsTree[relation.children[j]];
-            var childRelationField = childRelation.relationField;
-            var userDefinedRelName = childRelation.userDefinedName;
-            if (!childRelation.isInvertedRelation) {
-                passedProperties[childRelationField] = 1;
-            }
-
-            var innerRelationResult = childRelation.result;
-
-            if (childRelation.isInvertedRelation) {
-                for (var k = 0; k < innerRelationResult.length; k++) {
-                    this._addSingleResultToParentArray(relationsTree, childRelation, innerRelationResult[k], result, userDefinedRelName);
-                }
-            } else {
-                result[userDefinedRelName] = childRelation.isArray() ? [] : null;
-
-                if (singleObject[childRelationField]) {
-                    if (Array.isArray(singleObject[childRelationField])) {
-                        if (childRelation.sortExpression) {
-                            // if there is a sorting we replace items using order of the query result
-                            for (var p = 0; p < innerRelationResult.length; p++) {
-                                if (singleObject[childRelationField].indexOf(innerRelationResult[p].Id) > -1) {
-                                    childItem = innerRelationResult[p];
-                                    this._addSingleResultToParentArray(relationsTree, childRelation, childItem, result, userDefinedRelName);
-                                }
-                            }
-                        } else {
-                            // we just replace items getting them by id which we have
-                            for (var i = 0; i < singleObject[childRelationField].length; i++) {
-                                childItem = this._getObjectByIdFromArray(innerRelationResult, singleObject[childRelationField][i]);
-                                this._addSingleResultToParentArray(relationsTree, childRelation, childItem, result, userDefinedRelName);
-                            }
-                        }
-                    } else {
-                        childItem = this._getObjectByIdFromArray(innerRelationResult, singleObject[childRelationField]);
-                        result[userDefinedRelName] = this._getSingleResult(relationsTree, childRelation, childItem);
-                    }
-                }
-            }
-        }
-    }
-
-    // add all other fields to the result (except the relation fields which we have already replaced).
-    for (var prop in singleObject) {
-        var propertyShouldBeAddedToResult = singleObject.hasOwnProperty(prop) && !passedProperties[prop] &&
-            this._fieldExistInFieldsExpression(prop, relation.originalFieldsExpression);
-        if (propertyShouldBeAddedToResult) {
-            result[prop] = singleObject[prop];
-        }
-    }
-
-    return result;
-};
-
-Processor.prototype._addSingleResultToParentArray = function (relationsTree, childRelation, childItem, result, userDefinedRelName) {
-    var singleResult = this._getSingleResult(relationsTree, childRelation, childItem);
-    result[userDefinedRelName] = result[userDefinedRelName] || [];
-    if (singleResult) {
-        result[userDefinedRelName].push(singleResult);
-    }
-};
-
-/**
- * Checks if a field will be returned via given fields expression.
- * @param field - The name of the field.
- * @param fieldsExpression - The Fields expression which is checked.
- * @returns {*}
- */
-Processor.prototype._fieldExistInFieldsExpression = function (field, fieldsExpression) {
-    if (fieldsExpression === undefined || Object.keys(fieldsExpression).length === 0) {
-        return true;
-    }
-
-    if (field === Constants.IdFieldNameClient) {
-        if (fieldsExpression[field] === undefined) {
-            return true;
-        }
-        return fieldsExpression[field];
-    }
-
-    var isExclusive = RelationTreeBuilder.getIsFieldsExpressionExclusive(fieldsExpression);
-
-    if (isExclusive === undefined) {
-        return true;
-    }
-
-    if (isExclusive) {
-        return !fieldsExpression.hasOwnProperty(field);
-    } else {
-        return fieldsExpression.hasOwnProperty(field);
-    }
-};
-
-/**
- * Extracts the result for a single relation (in cases when ExecutionNode contains more than one relations).
- * @param relation - The relation object.
- * @param queryResult - Result of the combined query.
- * @returns {Array}
- */
-Processor.prototype._extractResultForRelation = function (relation, queryResult) {
-    var result = [];
-    for (var i = 0; i < queryResult.length; i++) {
-        if (relation.parentRelationIds) {
-            if (relation.parentRelationIds.hasOwnProperty(queryResult[i].Id)) {
-                result.push(queryResult[i]);
-            }
-        }
-        if (relation.isInvertedRelation) {
-            result.push(queryResult[i]);
-        }
-    }
-    return result;
-};
-
-/**
- * Gets an object with a given Id from Array.
- * @param array
- * @param id
- * @returns {*}
- */
-Processor.prototype._getObjectByIdFromArray = function (array, id) {
-    if (array) {
-        for (var i = 0; i < array.length; i++) {
-            if (array[i].Id === id) {
-                return array[i];
-            }
-        }
-    }
-    return null;
-};
-
-/**
- * @public
- * @param expandExpression
- * @param mainTypeName
- * @param isArray
- * @param fieldsExpression
- * @param maxTakeValue
- * @param prepareContext
- * @param done
- */
-Processor.prototype.prepare = function (expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, prepareContext, done) {
-    var rtb = new RelationTreeBuilder(expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, this._metadataProviderFunction, prepareContext);
-    rtb.build(function (err, map) {
-        var mainQueryFieldsExpression;
-        if (map) {
-            mainQueryFieldsExpression = map[map.$root].fieldsExpression;
-            var prepareResult = {
-                relationsTree: rtb,
-                mainQueryFieldsExpression: mainQueryFieldsExpression
-            }
-        }
-        done(err, prepareResult);
-    });
-};
-
-/**
- * @public
- * @param relationsTree
- * @param mainQueryResult
- * @param expandContext
- * @param done
- */
-Processor.prototype.expand = function (relationsTree, mainQueryResult, expandContext, done) {
-    var relationsTreeMap = relationsTree.map;
-    var self = this;
-    var executionTree = new ExecutionTree(relationsTreeMap);
-    executionTree.build();
-    relationsTreeMap[relationsTreeMap.$root].result = mainQueryResult;
-    var executionTreeMap = executionTree._map;
-
-    var executionTreeRoot = this._getExecutionTreeRoot(executionTreeMap);
-
-    var maxQueriesCount = 20;
-    if (Object.keys(executionTreeMap).length > maxQueriesCount) {
-        done(new ExpandError('Expand expression results in more than ' + maxQueriesCount + ' inner queries!'));
-    }
-
-    if (executionTreeRoot) {
-        var execFuncs = [];
-        for (var i = 0; i < executionTreeRoot.children.length; i++) {
-            execFuncs.push(this._createExecuteNodeExecutor(relationsTree, executionTree, executionTreeMap[executionTreeRoot.children[i]], expandContext));
-        }
-        // execFuncs are functions created for every single execution note
-        // we execute them in async, since the result of the parent relation is used to get correct filter.
-        async.series(execFuncs, function onProcessExecutionTree(err) {
-            if (err) {
-                done(err);
-            } else {
-                var output;
-                var rootRelation = relationsTreeMap[relationsTreeMap.$root];
-                if (Array.isArray(mainQueryResult)) {
-                    output = [];
-                    for (var i = 0; i < mainQueryResult.length; i++) {
-                        var singleResult = self._getSingleResult(relationsTreeMap, rootRelation, mainQueryResult[i]);
-                        if (singleResult) {
-                            output.push(singleResult);
-                        }
-                    }
-                } else {
-                    output = self._getSingleResult(relationsTreeMap, rootRelation, mainQueryResult);
-                }
-                done(null, output);
-            }
-        });
-    }
-};
-
-Processor.Constants = Constants;
-
-module.exports = Processor;
-
-},{"./Constants":36,"./ExecutionTree":37,"./ExpandError":38,"./RelationTreeBuilder":41,"async":42}],40:[function(require,module,exports){
-'use strict';
-var Constants = require('./Constants');
-var _ = require('underscore');
-var ExpandError = require('./ExpandError');
-
-function RelationNode(options) {
-    this.parent = options.parent;
-    this.relationField = options.relationField;
-    this.path = options.path || options.parent + '.' + options.relationField;
-    this.fieldsExpression = options.fieldsExpression || {};
-    this.targetTypeName = options.targetTypeName;
-    this.children = [];
-    this.isInvertedRelation = options.isInvertedRelation;
-    this.isArrayRoot = options.isArrayRoot; //used for validation of cases where various expand features are disabled for a GetAll scenario.
-    this.hasArrayValues = false;//set when we have executed the query. Used in validation scenarios where we do not have metadata about whether the relation is an array or not.
-
-    var expandExpression = options.expandExpression || {};
-
-    this.parentRelationField = expandExpression[Constants.ParentRelationFieldName] || Constants.IdFieldNameClient;
-    var relationField = this.isInvertedRelation ? this.path : this.relationField; //inverted relations appear with the full path - ContentType.Field - in the result when expanding.
-    this.userDefinedName = expandExpression[Constants.ReturnAsFieldName] || relationField;
-    _.extend(this.fieldsExpression, expandExpression[Constants.FieldsExpressionName]);
-    this.originalFieldsExpression = {};
-    _.extend(this.originalFieldsExpression, this.fieldsExpression);
-    this.singleFieldName = expandExpression[Constants.SingleFieldExpressionName];
-    this.filterExpression = expandExpression[Constants.FilterExpressionName];
-    this.sortExpression = expandExpression[Constants.SortExpressionName];
-    this.skip = expandExpression[Constants.SkipExpressionName];
-    this.take = this._getTakeLimit(expandExpression[Constants.TakeExpressionName], options.maxTakeValue);
-}
-
-
-/**
- * Gets the take limit depending on the application and the take value that the user has provided.
- * @param clientTakeValue
- * @param maxTakeValue
- * @returns {number}
- */
-RelationNode.prototype._getTakeLimit = function (clientTakeValue, maxTakeValue) {
-    maxTakeValue = maxTakeValue || Constants.DefaultTakeItemsCount;
-    if (clientTakeValue) {
-        if (clientTakeValue > maxTakeValue) {
-            throw new ExpandError('The maximum allowed take value when expanding relations is ' + maxTakeValue + '!');
-        }
-        return clientTakeValue;
-    } else {
-        return maxTakeValue;
-    }
-};
-
-/**
- * Anyone using the bs-expand-processor module can set whether the relation is a multiple relation in the prepare phase.
- * This will allow for certain restrictions to be enforced directly on the prepare phase instead of the execution phase.
- */
-RelationNode.prototype.setIsArrayFromMetadata = function () {
-    this.isArrayFromMetadata = true;
-};
-
-RelationNode.prototype.isArray = function () {
-    // We can find out if a relation is an array in the following cases:
-    // From metadata in the API Server.
-    // All inverted relations are array.
-    // Once values have been received we can find out. This is used for scenarios where we do not have metadata about the relation (offline storage in SDK).
-    return this.isArrayFromMetadata || this.isInvertedRelation || this.hasArrayValues;
-};
-
-module.exports = RelationNode;
-
-},{"./Constants":36,"./ExpandError":38,"underscore":43}],41:[function(require,module,exports){
-'use strict';
-var RelationNode = require('./RelationNode');
-var _ = require('underscore');
-var Constants = require('./Constants');
-var ExpandError = require('./ExpandError');
-
-//var relationFieldPropertyName = Constants.RelationExpressionName;
-
-var possibleExpandOptions = [
-    Constants.ExpandExpressionName,
-    Constants.ReturnAsFieldName,
-    Constants.FieldsExpressionName,
-    Constants.SingleFieldExpressionName,
-    Constants.SortExpressionName,
-    Constants.FilterExpressionName,
-    Constants.SkipExpressionName,
-    Constants.TakeExpressionName,
-    Constants.ParentRelationFieldName,
-    Constants.TargetTypeNameFieldName
-];
-
-
-/**
- * A class used to parse Expand expression and build a corresponding relation tree.
- * In a process of creating the relation tree are performed several checks in order to force some limitations -
- * 50 items both for master and child queries and entire amount of all queries limited to 20.
- * Checks if the relation field given by the customer is valid (for example: user gives "Like" while the relation field is "Likes").
- * Checks for possible expand options.
- * @constructor
- */
-var RelationTreeBuilder = function (expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, metadataProviderFunction, context) {
-    this.maxTakeValue = maxTakeValue;
-    this._metadataProviderFunction = metadataProviderFunction;
-    this.context = context;
-    this.expandExpression = this.processExpandExpression(expandExpression);
-    // mark the main query in order to avoid some duplication issues.
-    this.map = {};
-    this.map[mainTypeName] = new RelationNode({
-        targetTypeName: mainTypeName,
-        isArrayRoot: isArray,
-        fieldsExpression: fieldsExpression,
-        validated: true,
-        path: mainTypeName,
-        maxTakeValue: maxTakeValue
-    });
-    this.map[mainTypeName].originalFieldsExpression = {};
-    _.extend(this.map[mainTypeName].originalFieldsExpression, fieldsExpression);
-    this.map.$root = mainTypeName;
-};
-
-/**
- * Creates fully qualified expand expression from shorthand usages:
- * {"Likes": true} -> {"Likes": {"ReturnAs": "Likes"}}
- * {"Likes": "LikesExpanded"} -> {"Likes": {"ReturnAs": "LikesExpanded"}}
- * @param expandExpression
- * @returns {*}
- */
-RelationTreeBuilder.prototype.processExpandExpression = function (expandExpression) {
-    for (var property in expandExpression) {
-        if (expandExpression.hasOwnProperty(property)) {
-            if (typeof expandExpression[property] === 'boolean') {
-                expandExpression[property] = {};
-                expandExpression[property][Constants.ReturnAsFieldName] = property;
-            }
-            if (typeof expandExpression[property] === 'string') {
-                var relationField = expandExpression[property];
-                expandExpression[property] = {};
-                expandExpression[property][Constants.ReturnAsFieldName] = relationField;
-            }
-        }
-    }
-    return expandExpression;
-};
-
-/**
- * Builds the relation tree.
- * @param done
- */
-RelationTreeBuilder.prototype.build = function (done) {
-    try {
-        this.buildMapInternal(this.expandExpression, this.map.$root);
-    } catch (e) {
-        return done(e);
-    }
-    var self = this;
-    require('async').series([
-        this.configureRelationTree.bind(this),
-        this.validateRelationTree.bind(this)
-    ], function (err) {
-        done(err, self.map);
-    });
-};
-
-/**
- *
- * @param relationName - A path to the external relation collection (Comments.ActivityId)
- * @param expandExpression - The expand expression that contains all information about the relation
- * @param rootName - Name of the parent relation.
- * @returns {RelationNode}
- */
-RelationTreeBuilder.prototype.createInvertedRelation = function (relationName, expandExpression, rootName) {
-    var options = {};
-    var relationNameParts = relationName.split('.');
-    options.parent = rootName;
-    options.relationField = relationNameParts[1];
-    options.isInvertedRelation = true;
-    options.targetTypeName = relationNameParts[0];
-    options.expandExpression = expandExpression;
-    options.path = relationName;
-    options.maxTakeValue = this.maxTakeValue;
-    options.validated = false;
-
-    return new RelationNode(options);
-};
-
-/**
- * An internal method which parses the expand expression and produces a basic relation tree (only names and parent relations).
- * @param expandExpression - The expand expression which will be processed.
- * @param rootName - The name of the root relation (master query) usually the name of the requested content type (Activities).
- */
-RelationTreeBuilder.prototype.buildMapInternal = function (expandExpression, rootName) {
-    for (var relationName in expandExpression) {
-        if (expandExpression.hasOwnProperty(relationName)) {
-            var currentExpression = expandExpression[relationName];
-
-            for (var option in currentExpression) {
-                if (currentExpression.hasOwnProperty(option) && possibleExpandOptions.indexOf(option) === -1) {
-                    throw new ExpandError('\"' + option + '\"' + ' is not a valid option for Expand expression');
-                }
-            }
-
-            if (relationName.indexOf('.') > -1) {
-                var invertedRelation = this.createInvertedRelation(relationName, currentExpression, rootName);
-                this.map[invertedRelation.path] = invertedRelation;
-                this.map[invertedRelation.parent].children.push(invertedRelation.path);
-                // adds a field expression in the original fields expression in order to get the result for that field
-                RelationTreeBuilder.addFieldToFieldsExpression(this.map[invertedRelation.parent].originalFieldsExpression, invertedRelation.userDefinedName);
-
-                if (expandExpression[relationName][Constants.ExpandExpressionName]) {
-                    var processedExpandExpression = this.processExpandExpression(expandExpression[relationName][Constants.ExpandExpressionName]);
-                    this.buildMapInternal(processedExpandExpression, invertedRelation.path);
-                }
-            } else {
-                var options = {};
-                options.relationField = relationName;
-                options.parent = rootName;
-                options.expandExpression = currentExpression;
-                options.maxTakeValue = this.maxTakeValue;
-                options.targetTypeName = currentExpression[Constants.TargetTypeNameFieldName];
-                var relationNode = new RelationNode(options);
-                var parentNode = this.map[options.parent];
-                parentNode.children.push(relationNode.path);
-                this.map[relationNode.path] = relationNode;
-
-                if (currentExpression.hasOwnProperty(Constants.ExpandExpressionName)) {
-                    if (typeof(currentExpression[Constants.ExpandExpressionName]) === 'object') {
-                        this.buildMapInternal(this.processExpandExpression(currentExpression.Expand), relationNode.path);
-                    } else {
-                        throw new ExpandError(relationNode.path + '.Expand must be a valid expand expression!');
-                    }
-                }
-            }
-        }
-    }
-};
-
-/**
- * Adds additional metadata which is necessary to execute a query.
- * Name of the content type of the child relation get via relation field.
- * @param done
- */
-RelationTreeBuilder.prototype.configureRelationTree = function (done) {
-    if (this._metadataProviderFunction) {
-        var relationNames = [];
-        var self = this;
-
-        for (var rel in this.map) {
-            if (this.map.hasOwnProperty(rel)) {
-                if (this.map[rel].parent !== null) {
-                    relationNames.push(this.map[rel].relationField);
-                }
-            }
-        }
-
-        this._metadataProviderFunction(relationNames, this.map, this.context, function (err, result) {
-            done(err);
-        });
-    } else {
-        return done();
-    }
-};
-
-/**
- * Performs several checks like:
- * Validity of the relation field.
- * To not use filter or sorting expression within a "GetByFilter" scenario.
- * Does not allow to nest (expand multiple relation field) after a multiple relation.
- * Does not allow to use both "Fields" and "SingleField" options.
- * @param done
- * @returns {*}
- */
-RelationTreeBuilder.prototype.validateRelationTree = function (done) {
-    var errorMessage = '';
-    var EOL = '\r\n';
-    for (var relationPath in this.map) {
-        if (relationPath !== '$root' && this.map.hasOwnProperty(relationPath)) {
-            var relation = this.map[relationPath];
-            errorMessage += this.validateSingleRelation(relation);
-            this.configureFieldsExpressionsForRelation(relation);
-        }
-    }
-    if (errorMessage !== '') {
-        var finalErrorMessage = errorMessage.substr(0, errorMessage.lastIndexOf(EOL));
-        var error = new ExpandError(finalErrorMessage);
-        return done(error);
-    } else {
-        done();
-    }
-};
-
-/**
- * Add relation fields to parent relation fields expression if needed (otherwise relation cannot be established).
- * @param relation - A relation which will be configured.
- */
-RelationTreeBuilder.prototype.configureFieldsExpressionsForRelation = function (relation) {
-    if (relation.parent) {
-        var parentRelationFieldsExpression = this.map[relation.parent].fieldsExpression;
-        if (relation.isInvertedRelation) {
-            RelationTreeBuilder.addFieldToFieldsExpression(parentRelationFieldsExpression, relation.parentRelationField);
-        } else {
-            RelationTreeBuilder.addFieldToFieldsExpression(parentRelationFieldsExpression, relation.relationField);
-        }
-    }
-    if (relation.isInvertedRelation) {
-        RelationTreeBuilder.addFieldToFieldsExpression(relation.fieldsExpression, relation.relationField);
-    } else {
-        RelationTreeBuilder.addFieldToFieldsExpression(relation.fieldsExpression, Constants.IdFieldNameClient);
-    }
-    RelationTreeBuilder.adjustParentRelationFieldsExpression(this.map[relation.parent], relation);
-};
-
-/**
- * Validates a single relation for all build-in limitations.
- * @param relation - A relation which will be validated.
- * @returns {string} - Returns an error message with all errors or empty string if there is no errors.
- */
-RelationTreeBuilder.prototype.validateSingleRelation = function (relation) {
-    var errorMessage = '';
-    var EOL = '\r\n';
-    var isGetByFilterQuery = this.map[this.map.$root].isArrayRoot;
-
-    if (relation.path === relation.parent) {
-        errorMessage += relation.path + ' has same parent which will cause an infinite loop.' + EOL;
-        return errorMessage;
-    }
-
-    if (relation.isArray()) {
-        var multipleQueriesCount = this.getParentMultipleRelationsCount(relation);
-        if (multipleQueriesCount > 0) {
-            errorMessage += 'Expand expression has multiple relation \"' + relation.path + '\" inside a multiple relation.';
-            errorMessage += EOL;
-        }
-
-        if (this.map[relation.parent] === this.map[this.map.$root] &&
-            isGetByFilterQuery &&
-            (relation.filterExpression || relation.sortExpression)) {
-            errorMessage += 'Filter and Sort expressions are not allowed with GetByFilter scenario.';
-            errorMessage += EOL;
-        }
-
-        if (isGetByFilterQuery && relation.isInvertedRelation) {
-            errorMessage += 'Expanding an external content type is not allowed with GetByFilter scenario.';
-            errorMessage += EOL;
-        }
-    }
-    if (!relation.targetTypeName) {
-        errorMessage += 'Expanding relation \"' + relation.relationField + '\" has no target type name specified. You should use \"TargetTypeName\" to specify it.';
-        errorMessage += EOL;
-    }
-    if (relation.fieldsExpression && Object.keys(relation.fieldsExpression).length && relation.singleFieldName) {
-        errorMessage += relation.path + ' ';
-        errorMessage += 'expand expression contains both \"Fields\" and \"SingleField\" expressions.';
-        errorMessage += EOL;
-    }
-    if (relation.singleFieldName) {
-        if (relation.children) {
-            if (relation.children.length > 1) {
-                errorMessage += relation.path + ' has multiple expand expressions with a single field option.' + EOL;
-            }
-            if (relation.children.length === 1 && this.map[relation.children[0]].relationField !== relation.singleFieldName) {
-                errorMessage += 'Expand expression ' + relation.path;
-                errorMessage += ' single field \"' + relation.singleFieldName + '\"';
-                errorMessage += ' does not match child relation field \"' + this.map[relation.children[0]].relationField + '\".';
-                errorMessage += EOL;
-            }
-        }
-    }
-
-    return errorMessage;
-};
-
-/**
- * Gets the count of parent multiple relations.
- * @param relation - Starting relation.
- * @returns {number} - count of all parent multiple relations
- */
-RelationTreeBuilder.prototype.getParentMultipleRelationsCount = function (relation) {
-    var result = 0;
-    var relationForLoop = relation;
-    while (relationForLoop.parent) {
-        var parentRelation = this.map[relationForLoop.parent];
-        if (parentRelation.isArray() && parentRelation.parent) {
-            result += 1;
-        }
-        relationForLoop = parentRelation;
-    }
-    return result;
-};
-
-
-/**
- * Adjusts fields expression of the parent relation based on paging setting of a relation (skip, take).
- * In that case we put a "$slice" option within the parent relation fields expression.
- * @param parentRelation
- * @param relation
- */
-RelationTreeBuilder.adjustParentRelationFieldsExpression = function (parentRelation, relation) {
-    if (!relation.isInvertedRelation && relation.take && typeof relation.take === 'number') {
-        // when relation has filter or sorting skip and take should not be transferred to the parent relation as $slice.
-        var shouldTransferPagingToParentRelation = relation.isArray() && !relation.filterExpression && !relation.sortExpression && parentRelation;
-        if (shouldTransferPagingToParentRelation) {
-            if (parentRelation.fieldsExpression === undefined) {
-                parentRelation.fieldsExpression = {};
-            }
-
-            if (relation.skip && typeof relation.skip === 'number') {
-                parentRelation.fieldsExpression[relation.relationField] = {
-                    '$slice': [relation.skip, relation.take]
-                };
-            } else {
-                parentRelation.fieldsExpression[relation.relationField] = {
-                    '$slice': relation.take
-                };
-            }
-            relation.take = null;
-            relation.skip = null;
-            relation.movedSkipTakeAsSlice = true;
-        }
-    }
-};
-
-/**
- * Adds field to parent relation fields expression. For example if the relation field is excluded from the master request.
- * @param fieldsExpression - Fields expression of the parent relation.
- * @param relationField - Name of the field which should be returned.
- */
-RelationTreeBuilder.addFieldToFieldsExpression = function (fieldsExpression, relationField) {
-    if (fieldsExpression === undefined || Object.keys(fieldsExpression).length === 0) {
-        return;
-    }
-    var isExclusive = RelationTreeBuilder.getIsFieldsExpressionExclusive(fieldsExpression);
-
-    if (isExclusive === undefined) {
-        return;
-    }
-
-    if (isExclusive) {
-        delete fieldsExpression[relationField];
-    } else {
-        fieldsExpression[relationField] = 1;
-    }
-};
-
-/**
- * Gets if the fields expression is exclusive ("FieldName" : 0)
- * @param fieldsExpression - Fields expression to check.
- * @returns {*}
- */
-RelationTreeBuilder.getIsFieldsExpressionExclusive = function (fieldsExpression) {
-    var isExclusive;
-    for (var fieldName in fieldsExpression) {
-        if (fieldName !== Constants.IdFieldNameClient && fieldsExpression.hasOwnProperty(fieldName)) {
-            if (isExclusive === undefined) {
-                if (fieldsExpression[fieldName] === 0) {
-                    isExclusive = true;
-                    break;
-                } else {
-                    if (typeof fieldsExpression[fieldName] === 'object') {
-                        continue;
-                    } else {
-                        // fieldsExpression[fieldName] === 1
-                        isExclusive = false;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-    return isExclusive;
-};
-
-module.exports = RelationTreeBuilder;
-
-},{"./Constants":36,"./ExpandError":38,"./RelationNode":40,"async":42,"underscore":43}],42:[function(require,module,exports){
-(function (process){
-/*!
- * async
- * https://github.com/caolan/async
- *
- * Copyright 2010-2014 Caolan McMahon
- * Released under the MIT license
- */
-/*jshint onevar: false, indent:4 */
-/*global setImmediate: false, setTimeout: false, console: false */
-(function () {
-
-    var async = {};
-
-    // global on the server, window in the browser
-    var root, previous_async;
-
-    root = this;
-    if (root != null) {
-      previous_async = root.async;
-    }
-
-    async.noConflict = function () {
-        root.async = previous_async;
-        return async;
-    };
-
-    function only_once(fn) {
-        var called = false;
-        return function() {
-            if (called) throw new Error("Callback was already called.");
-            called = true;
-            fn.apply(root, arguments);
-        }
-    }
-
-    //// cross-browser compatiblity functions ////
-
-    var _toString = Object.prototype.toString;
-
-    var _isArray = Array.isArray || function (obj) {
-        return _toString.call(obj) === '[object Array]';
-    };
-
-    var _each = function (arr, iterator) {
-        if (arr.forEach) {
-            return arr.forEach(iterator);
-        }
-        for (var i = 0; i < arr.length; i += 1) {
-            iterator(arr[i], i, arr);
-        }
-    };
-
-    var _map = function (arr, iterator) {
-        if (arr.map) {
-            return arr.map(iterator);
-        }
-        var results = [];
-        _each(arr, function (x, i, a) {
-            results.push(iterator(x, i, a));
-        });
-        return results;
-    };
-
-    var _reduce = function (arr, iterator, memo) {
-        if (arr.reduce) {
-            return arr.reduce(iterator, memo);
-        }
-        _each(arr, function (x, i, a) {
-            memo = iterator(memo, x, i, a);
-        });
-        return memo;
-    };
-
-    var _keys = function (obj) {
-        if (Object.keys) {
-            return Object.keys(obj);
-        }
-        var keys = [];
-        for (var k in obj) {
-            if (obj.hasOwnProperty(k)) {
-                keys.push(k);
-            }
-        }
-        return keys;
-    };
-
-    //// exported async module functions ////
-
-    //// nextTick implementation with browser-compatible fallback ////
-    if (typeof process === 'undefined' || !(process.nextTick)) {
-        if (typeof setImmediate === 'function') {
-            async.nextTick = function (fn) {
-                // not a direct alias for IE10 compatibility
-                setImmediate(fn);
-            };
-            async.setImmediate = async.nextTick;
-        }
-        else {
-            async.nextTick = function (fn) {
-                setTimeout(fn, 0);
-            };
-            async.setImmediate = async.nextTick;
-        }
-    }
-    else {
-        async.nextTick = process.nextTick;
-        if (typeof setImmediate !== 'undefined') {
-            async.setImmediate = function (fn) {
-              // not a direct alias for IE10 compatibility
-              setImmediate(fn);
-            };
-        }
-        else {
-            async.setImmediate = async.nextTick;
-        }
-    }
-
-    async.each = function (arr, iterator, callback) {
-        callback = callback || function () {};
-        if (!arr.length) {
-            return callback();
-        }
-        var completed = 0;
-        _each(arr, function (x) {
-            iterator(x, only_once(done) );
-        });
-        function done(err) {
-          if (err) {
-              callback(err);
-              callback = function () {};
-          }
-          else {
-              completed += 1;
-              if (completed >= arr.length) {
-                  callback();
-              }
-          }
-        }
-    };
-    async.forEach = async.each;
-
-    async.eachSeries = function (arr, iterator, callback) {
-        callback = callback || function () {};
-        if (!arr.length) {
-            return callback();
-        }
-        var completed = 0;
-        var iterate = function () {
-            iterator(arr[completed], function (err) {
-                if (err) {
-                    callback(err);
-                    callback = function () {};
-                }
-                else {
-                    completed += 1;
-                    if (completed >= arr.length) {
-                        callback();
-                    }
-                    else {
-                        iterate();
-                    }
-                }
-            });
-        };
-        iterate();
-    };
-    async.forEachSeries = async.eachSeries;
-
-    async.eachLimit = function (arr, limit, iterator, callback) {
-        var fn = _eachLimit(limit);
-        fn.apply(null, [arr, iterator, callback]);
-    };
-    async.forEachLimit = async.eachLimit;
-
-    var _eachLimit = function (limit) {
-
-        return function (arr, iterator, callback) {
-            callback = callback || function () {};
-            if (!arr.length || limit <= 0) {
-                return callback();
-            }
-            var completed = 0;
-            var started = 0;
-            var running = 0;
-
-            (function replenish () {
-                if (completed >= arr.length) {
-                    return callback();
-                }
-
-                while (running < limit && started < arr.length) {
-                    started += 1;
-                    running += 1;
-                    iterator(arr[started - 1], function (err) {
-                        if (err) {
-                            callback(err);
-                            callback = function () {};
-                        }
-                        else {
-                            completed += 1;
-                            running -= 1;
-                            if (completed >= arr.length) {
-                                callback();
-                            }
-                            else {
-                                replenish();
-                            }
-                        }
-                    });
-                }
-            })();
-        };
-    };
-
-
-    var doParallel = function (fn) {
-        return function () {
-            var args = Array.prototype.slice.call(arguments);
-            return fn.apply(null, [async.each].concat(args));
-        };
-    };
-    var doParallelLimit = function(limit, fn) {
-        return function () {
-            var args = Array.prototype.slice.call(arguments);
-            return fn.apply(null, [_eachLimit(limit)].concat(args));
-        };
-    };
-    var doSeries = function (fn) {
-        return function () {
-            var args = Array.prototype.slice.call(arguments);
-            return fn.apply(null, [async.eachSeries].concat(args));
-        };
-    };
-
-
-    var _asyncMap = function (eachfn, arr, iterator, callback) {
-        arr = _map(arr, function (x, i) {
-            return {index: i, value: x};
-        });
-        if (!callback) {
-            eachfn(arr, function (x, callback) {
-                iterator(x.value, function (err) {
-                    callback(err);
-                });
-            });
-        } else {
-            var results = [];
-            eachfn(arr, function (x, callback) {
-                iterator(x.value, function (err, v) {
-                    results[x.index] = v;
-                    callback(err);
-                });
-            }, function (err) {
-                callback(err, results);
-            });
-        }
-    };
-    async.map = doParallel(_asyncMap);
-    async.mapSeries = doSeries(_asyncMap);
-    async.mapLimit = function (arr, limit, iterator, callback) {
-        return _mapLimit(limit)(arr, iterator, callback);
-    };
-
-    var _mapLimit = function(limit) {
-        return doParallelLimit(limit, _asyncMap);
-    };
-
-    // reduce only has a series version, as doing reduce in parallel won't
-    // work in many situations.
-    async.reduce = function (arr, memo, iterator, callback) {
-        async.eachSeries(arr, function (x, callback) {
-            iterator(memo, x, function (err, v) {
-                memo = v;
-                callback(err);
-            });
-        }, function (err) {
-            callback(err, memo);
-        });
-    };
-    // inject alias
-    async.inject = async.reduce;
-    // foldl alias
-    async.foldl = async.reduce;
-
-    async.reduceRight = function (arr, memo, iterator, callback) {
-        var reversed = _map(arr, function (x) {
-            return x;
-        }).reverse();
-        async.reduce(reversed, memo, iterator, callback);
-    };
-    // foldr alias
-    async.foldr = async.reduceRight;
-
-    var _filter = function (eachfn, arr, iterator, callback) {
-        var results = [];
-        arr = _map(arr, function (x, i) {
-            return {index: i, value: x};
-        });
-        eachfn(arr, function (x, callback) {
-            iterator(x.value, function (v) {
-                if (v) {
-                    results.push(x);
-                }
-                callback();
-            });
-        }, function (err) {
-            callback(_map(results.sort(function (a, b) {
-                return a.index - b.index;
-            }), function (x) {
-                return x.value;
-            }));
-        });
-    };
-    async.filter = doParallel(_filter);
-    async.filterSeries = doSeries(_filter);
-    // select alias
-    async.select = async.filter;
-    async.selectSeries = async.filterSeries;
-
-    var _reject = function (eachfn, arr, iterator, callback) {
-        var results = [];
-        arr = _map(arr, function (x, i) {
-            return {index: i, value: x};
-        });
-        eachfn(arr, function (x, callback) {
-            iterator(x.value, function (v) {
-                if (!v) {
-                    results.push(x);
-                }
-                callback();
-            });
-        }, function (err) {
-            callback(_map(results.sort(function (a, b) {
-                return a.index - b.index;
-            }), function (x) {
-                return x.value;
-            }));
-        });
-    };
-    async.reject = doParallel(_reject);
-    async.rejectSeries = doSeries(_reject);
-
-    var _detect = function (eachfn, arr, iterator, main_callback) {
-        eachfn(arr, function (x, callback) {
-            iterator(x, function (result) {
-                if (result) {
-                    main_callback(x);
-                    main_callback = function () {};
-                }
-                else {
-                    callback();
-                }
-            });
-        }, function (err) {
-            main_callback();
-        });
-    };
-    async.detect = doParallel(_detect);
-    async.detectSeries = doSeries(_detect);
-
-    async.some = function (arr, iterator, main_callback) {
-        async.each(arr, function (x, callback) {
-            iterator(x, function (v) {
-                if (v) {
-                    main_callback(true);
-                    main_callback = function () {};
-                }
-                callback();
-            });
-        }, function (err) {
-            main_callback(false);
-        });
-    };
-    // any alias
-    async.any = async.some;
-
-    async.every = function (arr, iterator, main_callback) {
-        async.each(arr, function (x, callback) {
-            iterator(x, function (v) {
-                if (!v) {
-                    main_callback(false);
-                    main_callback = function () {};
-                }
-                callback();
-            });
-        }, function (err) {
-            main_callback(true);
-        });
-    };
-    // all alias
-    async.all = async.every;
-
-    async.sortBy = function (arr, iterator, callback) {
-        async.map(arr, function (x, callback) {
-            iterator(x, function (err, criteria) {
-                if (err) {
-                    callback(err);
-                }
-                else {
-                    callback(null, {value: x, criteria: criteria});
-                }
-            });
-        }, function (err, results) {
-            if (err) {
-                return callback(err);
-            }
-            else {
-                var fn = function (left, right) {
-                    var a = left.criteria, b = right.criteria;
-                    return a < b ? -1 : a > b ? 1 : 0;
-                };
-                callback(null, _map(results.sort(fn), function (x) {
-                    return x.value;
-                }));
-            }
-        });
-    };
-
-    async.auto = function (tasks, callback) {
-        callback = callback || function () {};
-        var keys = _keys(tasks);
-        var remainingTasks = keys.length
-        if (!remainingTasks) {
-            return callback();
-        }
-
-        var results = {};
-
-        var listeners = [];
-        var addListener = function (fn) {
-            listeners.unshift(fn);
-        };
-        var removeListener = function (fn) {
-            for (var i = 0; i < listeners.length; i += 1) {
-                if (listeners[i] === fn) {
-                    listeners.splice(i, 1);
-                    return;
-                }
-            }
-        };
-        var taskComplete = function () {
-            remainingTasks--
-            _each(listeners.slice(0), function (fn) {
-                fn();
-            });
-        };
-
-        addListener(function () {
-            if (!remainingTasks) {
-                var theCallback = callback;
-                // prevent final callback from calling itself if it errors
-                callback = function () {};
-
-                theCallback(null, results);
-            }
-        });
-
-        _each(keys, function (k) {
-            var task = _isArray(tasks[k]) ? tasks[k]: [tasks[k]];
-            var taskCallback = function (err) {
-                var args = Array.prototype.slice.call(arguments, 1);
-                if (args.length <= 1) {
-                    args = args[0];
-                }
-                if (err) {
-                    var safeResults = {};
-                    _each(_keys(results), function(rkey) {
-                        safeResults[rkey] = results[rkey];
-                    });
-                    safeResults[k] = args;
-                    callback(err, safeResults);
-                    // stop subsequent errors hitting callback multiple times
-                    callback = function () {};
-                }
-                else {
-                    results[k] = args;
-                    async.setImmediate(taskComplete);
-                }
-            };
-            var requires = task.slice(0, Math.abs(task.length - 1)) || [];
-            var ready = function () {
-                return _reduce(requires, function (a, x) {
-                    return (a && results.hasOwnProperty(x));
-                }, true) && !results.hasOwnProperty(k);
-            };
-            if (ready()) {
-                task[task.length - 1](taskCallback, results);
-            }
-            else {
-                var listener = function () {
-                    if (ready()) {
-                        removeListener(listener);
-                        task[task.length - 1](taskCallback, results);
-                    }
-                };
-                addListener(listener);
-            }
-        });
-    };
-
-    async.retry = function(times, task, callback) {
-        var DEFAULT_TIMES = 5;
-        var attempts = [];
-        // Use defaults if times not passed
-        if (typeof times === 'function') {
-            callback = task;
-            task = times;
-            times = DEFAULT_TIMES;
-        }
-        // Make sure times is a number
-        times = parseInt(times, 10) || DEFAULT_TIMES;
-        var wrappedTask = function(wrappedCallback, wrappedResults) {
-            var retryAttempt = function(task, finalAttempt) {
-                return function(seriesCallback) {
-                    task(function(err, result){
-                        seriesCallback(!err || finalAttempt, {err: err, result: result});
-                    }, wrappedResults);
-                };
-            };
-            while (times) {
-                attempts.push(retryAttempt(task, !(times-=1)));
-            }
-            async.series(attempts, function(done, data){
-                data = data[data.length - 1];
-                (wrappedCallback || callback)(data.err, data.result);
-            });
-        }
-        // If a callback is passed, run this as a controll flow
-        return callback ? wrappedTask() : wrappedTask
-    };
-
-    async.waterfall = function (tasks, callback) {
-        callback = callback || function () {};
-        if (!_isArray(tasks)) {
-          var err = new Error('First argument to waterfall must be an array of functions');
-          return callback(err);
-        }
-        if (!tasks.length) {
-            return callback();
-        }
-        var wrapIterator = function (iterator) {
-            return function (err) {
-                if (err) {
-                    callback.apply(null, arguments);
-                    callback = function () {};
-                }
-                else {
-                    var args = Array.prototype.slice.call(arguments, 1);
-                    var next = iterator.next();
-                    if (next) {
-                        args.push(wrapIterator(next));
-                    }
-                    else {
-                        args.push(callback);
-                    }
-                    async.setImmediate(function () {
-                        iterator.apply(null, args);
-                    });
-                }
-            };
-        };
-        wrapIterator(async.iterator(tasks))();
-    };
-
-    var _parallel = function(eachfn, tasks, callback) {
-        callback = callback || function () {};
-        if (_isArray(tasks)) {
-            eachfn.map(tasks, function (fn, callback) {
-                if (fn) {
-                    fn(function (err) {
-                        var args = Array.prototype.slice.call(arguments, 1);
-                        if (args.length <= 1) {
-                            args = args[0];
-                        }
-                        callback.call(null, err, args);
-                    });
-                }
-            }, callback);
-        }
-        else {
-            var results = {};
-            eachfn.each(_keys(tasks), function (k, callback) {
-                tasks[k](function (err) {
-                    var args = Array.prototype.slice.call(arguments, 1);
-                    if (args.length <= 1) {
-                        args = args[0];
-                    }
-                    results[k] = args;
-                    callback(err);
-                });
-            }, function (err) {
-                callback(err, results);
-            });
-        }
-    };
-
-    async.parallel = function (tasks, callback) {
-        _parallel({ map: async.map, each: async.each }, tasks, callback);
-    };
-
-    async.parallelLimit = function(tasks, limit, callback) {
-        _parallel({ map: _mapLimit(limit), each: _eachLimit(limit) }, tasks, callback);
-    };
-
-    async.series = function (tasks, callback) {
-        callback = callback || function () {};
-        if (_isArray(tasks)) {
-            async.mapSeries(tasks, function (fn, callback) {
-                if (fn) {
-                    fn(function (err) {
-                        var args = Array.prototype.slice.call(arguments, 1);
-                        if (args.length <= 1) {
-                            args = args[0];
-                        }
-                        callback.call(null, err, args);
-                    });
-                }
-            }, callback);
-        }
-        else {
-            var results = {};
-            async.eachSeries(_keys(tasks), function (k, callback) {
-                tasks[k](function (err) {
-                    var args = Array.prototype.slice.call(arguments, 1);
-                    if (args.length <= 1) {
-                        args = args[0];
-                    }
-                    results[k] = args;
-                    callback(err);
-                });
-            }, function (err) {
-                callback(err, results);
-            });
-        }
-    };
-
-    async.iterator = function (tasks) {
-        var makeCallback = function (index) {
-            var fn = function () {
-                if (tasks.length) {
-                    tasks[index].apply(null, arguments);
-                }
-                return fn.next();
-            };
-            fn.next = function () {
-                return (index < tasks.length - 1) ? makeCallback(index + 1): null;
-            };
-            return fn;
-        };
-        return makeCallback(0);
-    };
-
-    async.apply = function (fn) {
-        var args = Array.prototype.slice.call(arguments, 1);
-        return function () {
-            return fn.apply(
-                null, args.concat(Array.prototype.slice.call(arguments))
-            );
-        };
-    };
-
-    var _concat = function (eachfn, arr, fn, callback) {
-        var r = [];
-        eachfn(arr, function (x, cb) {
-            fn(x, function (err, y) {
-                r = r.concat(y || []);
-                cb(err);
-            });
-        }, function (err) {
-            callback(err, r);
-        });
-    };
-    async.concat = doParallel(_concat);
-    async.concatSeries = doSeries(_concat);
-
-    async.whilst = function (test, iterator, callback) {
-        if (test()) {
-            iterator(function (err) {
-                if (err) {
-                    return callback(err);
-                }
-                async.whilst(test, iterator, callback);
-            });
-        }
-        else {
-            callback();
-        }
-    };
-
-    async.doWhilst = function (iterator, test, callback) {
-        iterator(function (err) {
-            if (err) {
-                return callback(err);
-            }
-            var args = Array.prototype.slice.call(arguments, 1);
-            if (test.apply(null, args)) {
-                async.doWhilst(iterator, test, callback);
-            }
-            else {
-                callback();
-            }
-        });
-    };
-
-    async.until = function (test, iterator, callback) {
-        if (!test()) {
-            iterator(function (err) {
-                if (err) {
-                    return callback(err);
-                }
-                async.until(test, iterator, callback);
-            });
-        }
-        else {
-            callback();
-        }
-    };
-
-    async.doUntil = function (iterator, test, callback) {
-        iterator(function (err) {
-            if (err) {
-                return callback(err);
-            }
-            var args = Array.prototype.slice.call(arguments, 1);
-            if (!test.apply(null, args)) {
-                async.doUntil(iterator, test, callback);
-            }
-            else {
-                callback();
-            }
-        });
-    };
-
-    async.queue = function (worker, concurrency) {
-        if (concurrency === undefined) {
-            concurrency = 1;
-        }
-        function _insert(q, data, pos, callback) {
-          if (!q.started){
-            q.started = true;
-          }
-          if (!_isArray(data)) {
-              data = [data];
-          }
-          if(data.length == 0) {
-             // call drain immediately if there are no tasks
-             return async.setImmediate(function() {
-                 if (q.drain) {
-                     q.drain();
-                 }
-             });
-          }
-          _each(data, function(task) {
-              var item = {
-                  data: task,
-                  callback: typeof callback === 'function' ? callback : null
-              };
-
-              if (pos) {
-                q.tasks.unshift(item);
-              } else {
-                q.tasks.push(item);
-              }
-
-              if (q.saturated && q.tasks.length === q.concurrency) {
-                  q.saturated();
-              }
-              async.setImmediate(q.process);
-          });
-        }
-
-        var workers = 0;
-        var q = {
-            tasks: [],
-            concurrency: concurrency,
-            saturated: null,
-            empty: null,
-            drain: null,
-            started: false,
-            paused: false,
-            push: function (data, callback) {
-              _insert(q, data, false, callback);
-            },
-            kill: function () {
-              q.drain = null;
-              q.tasks = [];
-            },
-            unshift: function (data, callback) {
-              _insert(q, data, true, callback);
-            },
-            process: function () {
-                if (!q.paused && workers < q.concurrency && q.tasks.length) {
-                    var task = q.tasks.shift();
-                    if (q.empty && q.tasks.length === 0) {
-                        q.empty();
-                    }
-                    workers += 1;
-                    var next = function () {
-                        workers -= 1;
-                        if (task.callback) {
-                            task.callback.apply(task, arguments);
-                        }
-                        if (q.drain && q.tasks.length + workers === 0) {
-                            q.drain();
-                        }
-                        q.process();
-                    };
-                    var cb = only_once(next);
-                    worker(task.data, cb);
-                }
-            },
-            length: function () {
-                return q.tasks.length;
-            },
-            running: function () {
-                return workers;
-            },
-            idle: function() {
-                return q.tasks.length + workers === 0;
-            },
-            pause: function () {
-                if (q.paused === true) { return; }
-                q.paused = true;
-                q.process();
-            },
-            resume: function () {
-                if (q.paused === false) { return; }
-                q.paused = false;
-                q.process();
-            }
-        };
-        return q;
-    };
-    
-    async.priorityQueue = function (worker, concurrency) {
-        
-        function _compareTasks(a, b){
-          return a.priority - b.priority;
-        };
-        
-        function _binarySearch(sequence, item, compare) {
-          var beg = -1,
-              end = sequence.length - 1;
-          while (beg < end) {
-            var mid = beg + ((end - beg + 1) >>> 1);
-            if (compare(item, sequence[mid]) >= 0) {
-              beg = mid;
-            } else {
-              end = mid - 1;
-            }
-          }
-          return beg;
-        }
-        
-        function _insert(q, data, priority, callback) {
-          if (!q.started){
-            q.started = true;
-          }
-          if (!_isArray(data)) {
-              data = [data];
-          }
-          if(data.length == 0) {
-             // call drain immediately if there are no tasks
-             return async.setImmediate(function() {
-                 if (q.drain) {
-                     q.drain();
-                 }
-             });
-          }
-          _each(data, function(task) {
-              var item = {
-                  data: task,
-                  priority: priority,
-                  callback: typeof callback === 'function' ? callback : null
-              };
-              
-              q.tasks.splice(_binarySearch(q.tasks, item, _compareTasks) + 1, 0, item);
-
-              if (q.saturated && q.tasks.length === q.concurrency) {
-                  q.saturated();
-              }
-              async.setImmediate(q.process);
-          });
-        }
-        
-        // Start with a normal queue
-        var q = async.queue(worker, concurrency);
-        
-        // Override push to accept second parameter representing priority
-        q.push = function (data, priority, callback) {
-          _insert(q, data, priority, callback);
-        };
-        
-        // Remove unshift function
-        delete q.unshift;
-
-        return q;
-    };
-
-    async.cargo = function (worker, payload) {
-        var working     = false,
-            tasks       = [];
-
-        var cargo = {
-            tasks: tasks,
-            payload: payload,
-            saturated: null,
-            empty: null,
-            drain: null,
-            drained: true,
-            push: function (data, callback) {
-                if (!_isArray(data)) {
-                    data = [data];
-                }
-                _each(data, function(task) {
-                    tasks.push({
-                        data: task,
-                        callback: typeof callback === 'function' ? callback : null
-                    });
-                    cargo.drained = false;
-                    if (cargo.saturated && tasks.length === payload) {
-                        cargo.saturated();
-                    }
-                });
-                async.setImmediate(cargo.process);
-            },
-            process: function process() {
-                if (working) return;
-                if (tasks.length === 0) {
-                    if(cargo.drain && !cargo.drained) cargo.drain();
-                    cargo.drained = true;
-                    return;
-                }
-
-                var ts = typeof payload === 'number'
-                            ? tasks.splice(0, payload)
-                            : tasks.splice(0, tasks.length);
-
-                var ds = _map(ts, function (task) {
-                    return task.data;
-                });
-
-                if(cargo.empty) cargo.empty();
-                working = true;
-                worker(ds, function () {
-                    working = false;
-
-                    var args = arguments;
-                    _each(ts, function (data) {
-                        if (data.callback) {
-                            data.callback.apply(null, args);
-                        }
-                    });
-
-                    process();
-                });
-            },
-            length: function () {
-                return tasks.length;
-            },
-            running: function () {
-                return working;
-            }
-        };
-        return cargo;
-    };
-
-    var _console_fn = function (name) {
-        return function (fn) {
-            var args = Array.prototype.slice.call(arguments, 1);
-            fn.apply(null, args.concat([function (err) {
-                var args = Array.prototype.slice.call(arguments, 1);
-                if (typeof console !== 'undefined') {
-                    if (err) {
-                        if (console.error) {
-                            console.error(err);
-                        }
-                    }
-                    else if (console[name]) {
-                        _each(args, function (x) {
-                            console[name](x);
-                        });
-                    }
-                }
-            }]));
-        };
-    };
-    async.log = _console_fn('log');
-    async.dir = _console_fn('dir');
-    /*async.info = _console_fn('info');
-    async.warn = _console_fn('warn');
-    async.error = _console_fn('error');*/
-
-    async.memoize = function (fn, hasher) {
-        var memo = {};
-        var queues = {};
-        hasher = hasher || function (x) {
-            return x;
-        };
-        var memoized = function () {
-            var args = Array.prototype.slice.call(arguments);
-            var callback = args.pop();
-            var key = hasher.apply(null, args);
-            if (key in memo) {
-                async.nextTick(function () {
-                    callback.apply(null, memo[key]);
-                });
-            }
-            else if (key in queues) {
-                queues[key].push(callback);
-            }
-            else {
-                queues[key] = [callback];
-                fn.apply(null, args.concat([function () {
-                    memo[key] = arguments;
-                    var q = queues[key];
-                    delete queues[key];
-                    for (var i = 0, l = q.length; i < l; i++) {
-                      q[i].apply(null, arguments);
-                    }
-                }]));
-            }
-        };
-        memoized.memo = memo;
-        memoized.unmemoized = fn;
-        return memoized;
-    };
-
-    async.unmemoize = function (fn) {
-      return function () {
-        return (fn.unmemoized || fn).apply(null, arguments);
-      };
-    };
-
-    async.times = function (count, iterator, callback) {
-        var counter = [];
-        for (var i = 0; i < count; i++) {
-            counter.push(i);
-        }
-        return async.map(counter, iterator, callback);
-    };
-
-    async.timesSeries = function (count, iterator, callback) {
-        var counter = [];
-        for (var i = 0; i < count; i++) {
-            counter.push(i);
-        }
-        return async.mapSeries(counter, iterator, callback);
-    };
-
-    async.seq = function (/* functions... */) {
-        var fns = arguments;
-        return function () {
-            var that = this;
-            var args = Array.prototype.slice.call(arguments);
-            var callback = args.pop();
-            async.reduce(fns, args, function (newargs, fn, cb) {
-                fn.apply(that, newargs.concat([function () {
-                    var err = arguments[0];
-                    var nextargs = Array.prototype.slice.call(arguments, 1);
-                    cb(err, nextargs);
-                }]))
-            },
-            function (err, results) {
-                callback.apply(that, [err].concat(results));
-            });
-        };
-    };
-
-    async.compose = function (/* functions... */) {
-      return async.seq.apply(null, Array.prototype.reverse.call(arguments));
-    };
-
-    var _applyEach = function (eachfn, fns /*args...*/) {
-        var go = function () {
-            var that = this;
-            var args = Array.prototype.slice.call(arguments);
-            var callback = args.pop();
-            return eachfn(fns, function (fn, cb) {
-                fn.apply(that, args.concat([cb]));
-            },
-            callback);
-        };
-        if (arguments.length > 2) {
-            var args = Array.prototype.slice.call(arguments, 2);
-            return go.apply(this, args);
-        }
-        else {
-            return go;
-        }
-    };
-    async.applyEach = doParallel(_applyEach);
-    async.applyEachSeries = doSeries(_applyEach);
-
-    async.forever = function (fn, callback) {
-        function next(err) {
-            if (err) {
-                if (callback) {
-                    return callback(err);
-                }
-                throw err;
-            }
-            fn(next);
-        }
-        next();
-    };
-
-    // Node.js
-    if (typeof module !== 'undefined' && module.exports) {
-        module.exports = async;
-    }
-    // AMD / RequireJS
-    else if (typeof define !== 'undefined' && define.amd) {
-        define([], function () {
-            return async;
-        });
-    }
-    // included directly via <script> tag
-    else {
-        root.async = async;
-    }
-
-}());
-
 }).call(this,require('_process'))
 
-},{"_process":4}],43:[function(require,module,exports){
+},{"_process":4}],35:[function(require,module,exports){
 //     Underscore.js 1.8.2
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -15670,7 +12355,2593 @@ module.exports = RelationTreeBuilder;
   }
 }.call(this));
 
-},{}],44:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
+'use strict';
+
+var AggregationTranslator = {};
+
+function getFieldAggregation(aggregationDefinition) {
+    var result;
+
+    if (aggregationDefinition.hasOwnProperty('count')) {
+        result = {'$sum': 1};
+    } else if (aggregationDefinition.min) {
+        result = {'$min': '$' + aggregationDefinition.min};
+    } else if (aggregationDefinition.max) {
+        result = {'$max': '$' + aggregationDefinition.max};
+    } else if (aggregationDefinition.avg) {
+        result = {'$avg': '$' + aggregationDefinition.avg};
+    } else if (aggregationDefinition.sum) {
+        result = {'$sum': '$' + aggregationDefinition.sum};
+    } else {
+        throw new Error('The aggregating function was not recognized or is not supported: ' + JSON.stringify(aggregationDefinition));
+    }
+
+    return result;
+};
+
+function addGroupingField(fieldName, _idObject, $project) {
+    //Add the field in the _id object
+    _idObject[fieldName] = '$' + fieldName;
+
+    //Add projection so that the result contains the actual field e.g. is { fieldName: fieldValue } instead of { _id: { fieldName: fieldValue } }
+    $project[fieldName] = '$_id.' + fieldName;
+}
+
+
+/*
+ * aggregateDefinition = {
+ *		Filter: object|null,
+ *		GroupBy: string|array|null,
+ *		Aggregate: object|null
+ * }
+ */
+AggregationTranslator.translate = function (aggregateDefinition, options) {
+    var $match;     //$match clause for the pipeline
+    var $group;     //$group clause for the pipeline
+    var $project;   //$project clause for the pipeline
+
+    options = options || {};
+
+    //Process the filter
+    if (aggregateDefinition.Filter) {
+        $match = aggregateDefinition.Filter;
+    }
+
+    //Process the GroupBy clause
+    var _id;	//The required _id clause in the Mongo $group clause
+    var groupByDefinition = aggregateDefinition.GroupBy;
+    if (groupByDefinition) {
+        //Mongo returns all the values of the grouping fields in an _id field, but we use projection to put the values of grouping fields on first level, thus we do not want the _id
+        $project = {_id: 0};
+
+        _id = {};
+        if (Array.isArray(groupByDefinition)) {
+            //The GroupBy value is an array of fields to group by
+            var groupingFields = groupByDefinition;
+
+            //Process each grouping field
+            for (var i = 0; i < groupingFields.length; i++) {
+                var groupingField = groupingFields[i];
+                addGroupingField(groupingField, _id, $project);
+            }
+        } else {
+            //TODO: check if the value is string, and if not - throw error
+
+            //The GroupBy value is the name of the field to group by
+            var groupingField = groupByDefinition;
+
+            //Process the grouping field
+            addGroupingField(groupingField, _id, $project);
+        }
+    } else {
+        //No GroupBy clause, meaning we apply the aggregation to the whole resultset
+        _id = null;
+
+        //Adjust the $project definition so that the '_id' returned by Mongo is not included in the result.
+        $project = {_id: 0};
+    }
+    $group = {'_id': _id};
+
+    //Process the Aggregate clause
+    var aggregateDefinition = aggregateDefinition.Aggregate;
+    if (aggregateDefinition) {
+        for (var outputFieldName in aggregateDefinition) {
+            if (aggregateDefinition.hasOwnProperty(outputFieldName)) {
+                var fieldAggregation = aggregateDefinition[outputFieldName];
+
+                //Add the field aggregation to the Mongo $group clause
+                $group[outputFieldName] = getFieldAggregation(fieldAggregation);
+
+                //Add the field to the projection, so that it is included in the result
+                $project[outputFieldName] = 1;
+            }
+        }
+    }
+
+    //Construct the pipeline
+    var pipeline = [];
+
+    if ($match) pipeline.push({$match: $match});
+
+    if (options.maxDocumentsCount) {
+        pipeline.push({$limit: options.maxDocumentsCount});
+    }
+
+    if ($group) pipeline.push({$group: $group});
+
+    if ($project) pipeline.push({$project: $project});
+
+    return pipeline;
+};
+
+module.exports = AggregationTranslator;
+},{}],37:[function(require,module,exports){
+'use strict';
+var Constants = {};
+Constants.DefaultTakeItemsCount = 50;
+Constants.ExpandExpressionName = 'Expand';
+Constants.ReturnAsFieldName = 'ReturnAs';
+Constants.FieldsExpressionName = 'Fields';
+Constants.SingleFieldExpressionName = 'SingleField';
+Constants.SortExpressionName = 'Sort';
+Constants.FilterExpressionName = 'Filter';
+Constants.SkipExpressionName = 'Skip';
+Constants.TakeExpressionName = 'Take';
+Constants.ParentRelationFieldName = 'ParentRelationField';
+Constants.IdFieldNameClient = 'Id';
+Constants.TargetTypeNameFieldName = 'TargetTypeName';
+Constants.ReturnItemsCountFieldName = 'ReturnItemsCount';
+Constants.AggregateExpressionFieldName = 'Aggregate';
+
+module.exports = Constants;
+},{}],38:[function(require,module,exports){
+'use strict';
+var Constants = require('./Constants');
+
+/**
+ * A class that is used to get all required information in order to process a set of relations.
+ * @param parent - An ExecutionNode instance used to supply the tree like data structure.
+ * @param relationNode - The relation node used to created the ExecutionNode instance (ExecutionNode instance should contain one or many relations
+ * if they can be combined for batch execution).
+ * @constructor
+ */
+var ExecutionNode = function (parentNode, relationNode) {
+    var parentPath = '';
+    if (parentNode) {
+        parentPath = parentNode.path;
+    }
+    this.parent = parentPath;
+    this.relations = [relationNode.path];
+    this.name = relationNode.path;
+    this.targetTypeName = relationNode.targetTypeName;
+    this.canAddOtherRelations = !relationNode.filterExpression && !relationNode.sortExpression && !relationNode.aggregateExpression && !relationNode.take && !relationNode.skip;
+    this.children = [];
+    var path = '';
+    if (parentPath) {
+        path += parentPath + '.';
+    }
+    path += relationNode.targetTypeName;
+    this.path = path;
+};
+
+/**
+ * Inserts a RelationNode to an ExecutionNode.
+ * @param relation - A RelationNode instance.
+ */
+ExecutionNode.prototype._insertRelationNode = function (relation) {
+    this.relations.push(relation.path);
+};
+
+/**
+ * Inserts a child node (which relations) depends from parent node result.
+ * @param child - ExecutionNode instance representing child node.
+ */
+ExecutionNode.prototype._insertChildNode = function (child) {
+    this.children.push(child.name);
+};
+
+/**
+ * Helper method that checks if some relations could be combined (for example have same TargetType).
+ * @param relation
+ * @returns {boolean}
+ */
+ExecutionNode.prototype.canCombineWithRelation = function (relation) {
+    if (!this.canAddOtherRelations) {
+        return false;
+    }
+
+    return this.targetTypeName === relation.targetTypeName && !relation.filterExpression && !relation.sortExpression && !relation.aggregateExpression && !relation.take && !relation.skip;
+};
+
+/** ExecutionTree
+ * Class that allows the creation of an execution tree from a RelationTree object. Used to process all queries (master and child) in a correct order.
+ * @param relationTree - An instance of RelationTree.
+ * @constructor
+ */
+var ExecutionTree = function (relationTree) {
+    this._relationTree = relationTree;
+    this._map = {};
+};
+
+/**
+ * Adds execution node to the ExecutionTree.
+ * @param executionNode
+ */
+ExecutionTree.prototype.addExecutionNode = function (executionNode) {
+    this._map[executionNode.name] = executionNode;
+};
+
+/**
+ * Finds the ExecutionNode which contains the requested relation.
+ * @param relation - A Relation instance.
+ * @returns {*}
+ */
+ExecutionTree.prototype.getExecutionNodeOfRelation = function (relation) {
+    for (var execNode in this._map) {
+        if (this._map.hasOwnProperty(execNode)) {
+            if (this._map[execNode].relations.indexOf(relation) > -1) {
+                return this._map[execNode];
+            }
+        }
+    }
+    return null;
+};
+
+ExecutionTree.prototype.getRelationTree = function () {
+	return this._relationTree;
+};
+
+/**
+ * Finds a RelationNode within the RelationTree.
+ * @param relationNodePath - String that represents the relation within the RelationTree (for example: Activities.Likes.Role).
+ * @returns {*}
+ */
+ExecutionTree.prototype.getRelationNode = function (relationNodePath) {
+    if (relationNodePath) {
+        return this._relationTree.map[relationNodePath] || null;
+    } else {
+        return null;
+    }
+};
+
+ExecutionTree.prototype.getRootRelationNode = function () {
+    return this._relationTree.map[this._relationTree.map.$root] || null;
+};
+
+ExecutionTree.prototype.getRootNode = function () {
+	var executionTreeMap = this._map;
+    var executionTreeRoot = null;
+    for (var exNode in executionTreeMap) {
+        if (executionTreeMap.hasOwnProperty(exNode)) {
+            if (executionTreeMap[exNode].parent === '') {
+                executionTreeRoot = executionTreeMap[exNode];
+                break;
+            }
+        }
+    }
+    return executionTreeRoot;
+};
+
+ExecutionTree.prototype.getNode = function (nodeName) {
+	return this._map[nodeName];
+};
+
+/**
+ * Builds the ExecutionTree from a RelationTree.
+ */
+ExecutionTree.prototype.build = function () {
+    //build beginning from the root
+    var relationRoot = this.getRelationNode(this._relationTree.map.$root);
+    //Setup the root of the execution tree.
+    var rootExecutionNode = new ExecutionNode(null, relationRoot);//no parent node
+    this.addExecutionNode(rootExecutionNode);
+    this.buildInternal(relationRoot);
+};
+
+/**
+ * Traverse the relation tree and build the execution tree.
+ * @param relationRoot - The root node of the RelationTree.
+ */
+ExecutionTree.prototype.buildInternal = function (relationRoot) {
+    relationRoot.children.forEach(function (child) {
+        var childRelationNode = this.getRelationNode(child);
+        this.insertRelationNodeInExecutionTree(childRelationNode);
+        this.buildInternal(childRelationNode);
+    }, this);
+};
+
+/**
+ * Inserts a relation node within the execution tree (based on its dependencies).
+ * @param relation - The relation that will be inserted.
+ */
+ExecutionTree.prototype.insertRelationNodeInExecutionTree = function (relation) {
+    var rootExecutionNode = this.getExecutionNodeOfRelation(relation.parentPath);
+    var childToCombine = this.tryGetChildNodeToCombine(rootExecutionNode, relation);
+    if (childToCombine) {//if there is a child that we combine the relation
+        childToCombine._insertRelationNode(relation);
+    } else {
+        var newExecutionNode = new ExecutionNode(rootExecutionNode, relation);//create a separate execution node that will host the relation
+        rootExecutionNode._insertChildNode(newExecutionNode);
+        this.addExecutionNode(newExecutionNode);
+    }
+};
+
+/**
+ * Tries to find an ExecutionNode which could be combined with a relation.
+ * @param rootExecutionNode - The root node of the ExecutionTree.
+ * @param relation - Relation that will be added to the ExecutionTree.
+ * @returns {*}
+ */
+ExecutionTree.prototype.tryGetChildNodeToCombine = function (rootExecutionNode, relation) {
+    if (rootExecutionNode.canCombineWithRelation(relation)) {
+        return rootExecutionNode;
+    }
+    var children = rootExecutionNode.children;
+    for (var i = 0; i < children.length; i++) {
+        var child = this._map[children[i]];
+        var childToCombine = this.tryGetChildNodeToCombine(child, relation);
+        if (childToCombine) {
+            return childToCombine;
+        }
+    }
+    return null;
+};
+
+/**
+ * Gets the filter expression from all relations inside an ExecutionNode.
+ * @param executionNode - The ExecutionNode instance.
+ * @returns {{}}
+ */
+ExecutionTree.prototype.getFilterFromExecutionNode = function (executionNode, includeArrays) {
+    var filter = {};
+    var subRelationsFilter = [];
+    for (var i = 0; i < executionNode.relations.length; i++) {
+        var innerFilter = this.getFilterFromSingleRelation(this._relationTree.map[executionNode.relations[i]], includeArrays);
+        if (innerFilter) {
+            subRelationsFilter.push(innerFilter);
+        }
+    }
+
+    if (subRelationsFilter.length > 1) {
+        filter.$or = subRelationsFilter;
+    } else if (subRelationsFilter.length > 0) {
+        filter = subRelationsFilter[0];
+    } else {
+        filter = null;
+    }
+    return filter;
+};
+
+
+
+/**
+ * Gets filter expression from a single relation. Traverse the relation tree in order to get the "Id"s from the result of parent relation
+ * along with user defined filters.
+ * @param relation - A Relation instance.
+ * @returns {*}
+ */
+ExecutionTree.prototype.getFilterFromSingleRelation = function (relation, includeArrays) {
+    var userDefinedFilter = relation.filterExpression;
+    var parentRelationFilter = {};
+    var parentRelationIds = this.getRelationFieldValues(relation, includeArrays);
+    var parentRelationFieldName = (relation.isInvertedRelation ? relation.relationField : Constants.IdFieldNameClient);
+
+    if (parentRelationIds.length > 0) {
+        parentRelationFilter[parentRelationFieldName] = {'$in': parentRelationIds};
+    } else {
+        return null;
+    }
+
+    if (userDefinedFilter !== undefined) {
+        var filters = [];
+        filters.push(parentRelationFilter);
+        filters.push(userDefinedFilter);
+        return {'$and': filters};
+    } else {
+        return parentRelationFilter;
+    }
+};
+
+/**
+ * Get relation field values of parent relation in order to construct a proper filter (to create a relation).
+ * @param relation - A RelationNode instance which will get the filter.
+ * @param includeArrays - Whether to include array values of the parent items when calculating the items that will be expanded on the current level.
+ * @returns {Array} - An array of relation field values.
+ */
+ExecutionTree.prototype.getRelationFieldValues = function (relation, includeArrays) {
+    var parentRelationIds = [];
+    var parentRelation = this._relationTree.map[relation.parentPath];
+    // parentRelationResult actually is an Activity or Array of Activities
+    var parentRelationResult = Array.isArray(parentRelation.result) ? parentRelation.result : [parentRelation.result];
+    if (relation.isInvertedRelation) {
+        for (var p = 0; p < parentRelationResult.length; p++) {
+            parentRelationIds.push(parentRelationResult[p][relation.parentRelationField]);
+        }
+    } else {
+        // all comments are related to expand of type content type Activities expand: {"Likes": true}
+        if (parentRelation && parentRelation.result) {
+            relation.parentRelationIds = relation.parentRelationIds || {};
+            for (var i = 0; i < parentRelationResult.length; i++) {
+                // itemFromParentRelation is single Activity
+                var itemFromParentRelation = parentRelationResult[i];
+
+                // parentRelationFieldValue is Activity.Likes
+                var parentRelationFieldValue = itemFromParentRelation[relation.relationField];
+                if (Array.isArray(parentRelationFieldValue)) {
+                    relation.hasArrayValues = true;
+                    if (includeArrays) {
+                        for (var j = 0; j < parentRelationFieldValue.length; j++) {
+                            // itemToExpandId is current value in Activity.Likes array or just a single "Id"
+                            var itemToExpandId = parentRelationFieldValue[j];
+                            if(itemToExpandId !== undefined && itemToExpandId !== null) {
+                                parentRelationIds.push(itemToExpandId);
+                                // we set any value just to create a map of Ids
+                                relation.parentRelationIds[itemToExpandId] = 1;
+                            }
+                        }
+                    }
+                } else {
+                    if(parentRelationFieldValue !== undefined && parentRelationFieldValue !== null) {
+                        parentRelationIds.push(parentRelationFieldValue);
+                        relation.parentRelationIds[parentRelationFieldValue] = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    return parentRelationIds;
+};
+
+module.exports = ExecutionTree;
+
+},{"./Constants":37}],39:[function(require,module,exports){
+'use strict';
+function ExpandError(message) {
+    this.name = 'ExpandError';
+    this.message = message;
+    this.stack = (new Error()).stack;
+}
+ExpandError.prototype = new Error;
+module.exports = ExpandError;
+},{}],40:[function(require,module,exports){
+'use strict';
+var async = require('async');
+var RelationTreeBuilder = require('./RelationTreeBuilder');
+var ExecutionTree = require('./ExecutionTree');
+var Constants = require('./Constants');
+var ExpandError = require('./ExpandError');
+
+function Processor(options) {
+    this._executionNodeFunction = options.executionNodeFunction;
+    this._metadataProviderFunction = options.metadataProviderFunction;
+}
+
+Processor.prototype._createExecuteNodeExecutor = function (relationsTree, executionTree, executionNode, expandContext) {
+    var self = this;
+    return function (done) {
+        var relationNode = executionTree.getRelationNode(executionNode.relations[0]);//get the relation node for the only relation of the execution node.
+        var parentRelationNode = executionTree.getRelationNode(relationNode.parentPath);
+        var includeArrays = !(parentRelationNode.parentPath && parentRelationNode.hasArrayValues); //only expand array fields if the parent relation is not an array. This means that if we have expanded a Likes (multiple to Users), we won't expand any array relations that are nested in it such as the UserComments (multiple relation to Comments).
+        var filter = executionTree.getFilterFromExecutionNode(executionNode, includeArrays);
+
+        var errorMessage = RelationTreeBuilder.validateSingleRelation(relationNode);
+        if (errorMessage) {
+            return done(new ExpandError(errorMessage));
+        }
+
+        // if we have such options executionNode should have only one relation.
+        var node = {};
+        node.select = relationNode.fieldsExpression;
+        node.sort = relationNode.sortExpression;
+        node.skip = relationNode.skip;
+        node.take = relationNode.take;
+        node.filter = filter;
+        node.targetTypeName = relationNode.targetTypeName;
+		node.returnItemsCount = relationNode.returnItemsCount;
+		node.aggregate = relationNode.aggregateExpression;
+
+        self._executionNodeFunction.call(null, node, expandContext, function onProcessExecutionNode(err, result) {
+            if (err) {
+                return done(err);
+            }
+			
+			var childRelationNode;
+
+            for (var i = 0; i < executionNode.relations.length; i++) {
+                childRelationNode = executionTree.getRelationNode(executionNode.relations[i]);
+                childRelationNode.result = self._extractResultForRelation(childRelationNode, result);
+            }
+            executionNode.result = childRelationNode.result;
+			
+            var arr = [];
+            for (var j = 0; j < executionNode.children.length; j++) {
+                var executionTreeMap = executionTree._map;
+                arr.push(self._createExecuteNodeExecutor(relationsTree, executionTree, executionTreeMap[executionNode.children[j]], expandContext));
+            }
+            async.parallel(arr, done);
+        });
+    };
+};
+
+Processor.prototype._getSingleResult = function (relationsTree, relation, singleObject, singleObjectIndex) {
+    if (!singleObject) {
+        return null;
+    }
+
+    var childRelation;
+    var childItem;
+
+    // if relation has singleFieldName option we just replace the parent id with a single value
+    if (relation.singleFieldName) {
+        if (relation.children && relation.children.length > 0) {
+            childRelation = relationsTree[relation.children[0]];
+            childItem = this._getObjectByIdFromArray(childRelation.result, singleObject[relation.singleFieldName]);
+            return this._getSingleResult(relationsTree, childRelation, childItem, 0);
+        }
+        return singleObject[relation.singleFieldName];
+    }
+
+    var result = {};
+    var passedProperties = {};
+
+    if (relation.children && relation.children.length > 0) {
+        for (var j = 0; j < relation.children.length; j++) {
+            childRelation = relationsTree[relation.children[j]];
+            var childRelationField = childRelation.relationField;
+            var userDefinedRelName = childRelation.userDefinedName;
+            if (!childRelation.isInvertedRelation && childRelationField === userDefinedRelName) {
+                passedProperties[childRelationField] = 1;
+            }
+
+            var innerRelationResult = childRelation.result;
+
+            if (childRelation.isInvertedRelation) {
+				if (childRelation.aggregateExpression) {
+					result[userDefinedRelName] = innerRelationResult[singleObjectIndex];
+				} else if (childRelation.returnItemsCount) {
+					result[userDefinedRelName] = innerRelationResult;
+				} else {
+					for (var k = 0; k < innerRelationResult.length; k++) {
+						var singleResult = this._getSingleResult(relationsTree, childRelation, innerRelationResult[k], k);
+						if (singleResult) {
+							result[userDefinedRelName] = result[userDefinedRelName] || [];
+							if (Array.isArray(relation.result)) {
+								//Insert the related items in their proper place in the parent item
+								if (singleResult[childRelation.relationField] === singleObject.Id) {
+									result[userDefinedRelName].push(singleResult);
+								}
+							} else {
+								result[userDefinedRelName].push(singleResult);
+							}
+						}
+					}
+				}
+            } else {
+                result[userDefinedRelName] = childRelation.isArray() ? [] : null;
+
+                if (singleObject[childRelationField]) {
+                    if (Array.isArray(singleObject[childRelationField])) {
+						if (childRelation.aggregateExpression) {
+							result[userDefinedRelName] = innerRelationResult[singleObjectIndex];
+                        } else if (childRelation.sortExpression) {
+                            // if there is a sorting we replace items using order of the query result
+                            for (var p = 0; p < innerRelationResult.length; p++) {
+                                if (singleObject[childRelationField].indexOf(innerRelationResult[p].Id) > -1) {
+                                    childItem = innerRelationResult[p];
+                                    this._addSingleResultToParentArray(relationsTree, childRelation, childItem, result, userDefinedRelName);
+                                }
+                            }
+                        } else {
+							// we just replace items getting them by id which we have
+							for (var i = 0; i < singleObject[childRelationField].length; i++) {
+								childItem = this._getObjectByIdFromArray(innerRelationResult, singleObject[childRelationField][i]);
+								this._addSingleResultToParentArray(relationsTree, childRelation, childItem, result, userDefinedRelName);
+							}
+                        }
+                    } else {
+                        childItem = this._getObjectByIdFromArray(innerRelationResult, singleObject[childRelationField]);
+                        result[userDefinedRelName] = this._getSingleResult(relationsTree, childRelation, childItem, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    // add all other fields to the result (except the relation fields which we have already replaced).
+    for (var prop in singleObject) {
+		if (singleObject.hasOwnProperty(prop)) {
+			var propertyShouldBeAddedToResult = !passedProperties[prop] && this._fieldExistInFieldsExpression(prop, relation.originalFieldsExpression);
+			if (propertyShouldBeAddedToResult) {
+				result[prop] = singleObject[prop];
+			}
+		}
+    }
+
+    return result;
+};
+
+Processor.prototype._addSingleResultToParentArray = function (relationsTree, childRelation, childItem, result, userDefinedRelName) {
+    var singleResult = this._getSingleResult(relationsTree, childRelation, childItem, 0);
+    result[userDefinedRelName] = result[userDefinedRelName] || [];
+    if (singleResult) {
+        result[userDefinedRelName].push(singleResult);
+    }
+};
+
+/**
+ * Checks if a field will be returned via given fields expression.
+ * @param field - The name of the field.
+ * @param fieldsExpression - The Fields expression which is checked.
+ * @returns {*}
+ */
+Processor.prototype._fieldExistInFieldsExpression = function (field, fieldsExpression) {
+    if (fieldsExpression === undefined || Object.keys(fieldsExpression).length === 0) {
+        return true;
+    }
+
+    if (field === Constants.IdFieldNameClient) {
+        if (fieldsExpression[field] === undefined) {
+            return true;
+        }
+        return fieldsExpression[field];
+    }
+
+    var isExclusive = RelationTreeBuilder.getIsFieldsExpressionExclusive(fieldsExpression);
+
+    if (isExclusive === undefined) {
+        return true;
+    }
+
+    if (isExclusive) {
+        return !fieldsExpression.hasOwnProperty(field);
+    } else {
+        return fieldsExpression.hasOwnProperty(field);
+    }
+};
+
+/**
+ * Extracts the result for a single relation (in cases when ExecutionNode contains more than one relations).
+ * @param relation - The relation object.
+ * @param queryResult - Result of the combined query.
+ * @returns {Array}
+ */
+Processor.prototype._extractResultForRelation = function (relation, queryResult) {
+	if (relation.returnItemsCount || relation.aggregateExpression) {
+		return queryResult;
+	} else {
+		var result = [];
+		for (var i = 0; i < queryResult.length; i++) {
+			if (relation.parentRelationIds) {
+				if (relation.parentRelationIds.hasOwnProperty(queryResult[i].Id)) {
+					result.push(queryResult[i]);
+				}
+			}
+			if (relation.isInvertedRelation) {
+				result.push(queryResult[i]);
+			}
+		}
+		return result;
+	}
+};
+
+/**
+ * Gets an object with a given Id from Array.
+ * @param array
+ * @param id
+ * @returns {*}
+ */
+Processor.prototype._getObjectByIdFromArray = function (array, id) {
+    if (array) {
+        for (var i = 0; i < array.length; i++) {
+            if (array[i].Id === id) {
+                return array[i];
+            }
+        }
+    }
+    return null;
+};
+
+/**
+ * @public
+ * @param expandExpression
+ * @param mainTypeName
+ * @param isArray
+ * @param fieldsExpression
+ * @param maxTakeValue
+ * @param prepareContext
+ * @param done
+ */
+Processor.prototype.prepare = function (expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, prepareContext, done) {
+    var rtb = new RelationTreeBuilder(expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, this._metadataProviderFunction, prepareContext);
+    rtb.build(function (err, map) {
+        var mainQueryFieldsExpression;
+        if (map) {
+            mainQueryFieldsExpression = map[map.$root].fieldsExpression;
+            var prepareResult = {
+                relationsTree: rtb,
+                mainQueryFieldsExpression: mainQueryFieldsExpression
+            }
+        }
+        done(err, prepareResult);
+    });
+};
+
+/**
+ * @public
+ * @param relationsTree
+ * @param mainQueryResult
+ * @param expandContext
+ * @param done
+ */
+Processor.prototype.expand = function (relationsTree, mainQueryResult, expandContext, done) {
+    var relationsTreeMap = relationsTree.map;
+    var self = this;
+	
+	//Build the execution tree
+    var executionTree = new ExecutionTree(relationsTree);
+    executionTree.build();
+    relationsTreeMap[relationsTreeMap.$root].result = mainQueryResult;
+	
+    var executionTreeMap = executionTree._map;
+    var rootExecutionNode = executionTree.getRootNode();
+    if (!rootExecutionNode) return;
+
+	//Get a list of execute definitions(queries) to execute against the DB
+	var executionList = this._getExecutionList(executionTree, rootExecutionNode, expandContext);
+	
+	//Check for the max queries limit
+    var maxQueriesCount = 25;
+    if (executionList.length > maxQueriesCount) {
+        done(new ExpandError('Expand expression results in more than ' + maxQueriesCount + ' inner queries!'));
+    }
+	
+	//Execute them in series, since the result of the parent relation is used to get correct filter.
+	async.forEachSeries(
+		executionList,
+		function(executeDefinition, callback) {
+			var executeOptions = executeDefinition.executeOptions;
+			var relationNode = executeDefinition.relationNode;
+			
+			//Adjust the filter for the execute definition, as it sometimes uses the result of the parent relation, which is only available after execution
+			self._adjustFilterForExecuteDefinition(executionTree, executeDefinition);
+			
+			//Apply the restrictions for expand
+			var errorMessage = RelationTreeBuilder.validateSingleRelation(relationNode, relationsTree);
+			if (errorMessage) {
+				return callback(new ExpandError(errorMessage));
+			}
+			
+			//Execute the query and set the result
+			self._executionNodeFunction.call(null, executeOptions, expandContext, function onProcessExecutionNode(err, result) {
+				if (err) {
+					return callback(err);
+				}
+				
+				var relationResult;
+				
+				if (executeDefinition.dataItem) {
+					relationResult = self._extractResultForRelation(relationNode, result);
+					if (!relationNode.result) relationNode.result = [];
+					relationNode.result.push(relationResult);
+				} else {
+					var executionNode = executeDefinition.executionNode;
+					var childRelationNode;
+					for (var i = 0; i < executionNode.relations.length; i++) {
+						childRelationNode = executionTree.getRelationNode(executionNode.relations[i]);
+						childRelationNode.result = self._extractResultForRelation(childRelationNode, result);
+					}
+					executionNode.result = childRelationNode.result;
+				}
+				
+				callback();
+			});
+		},
+		function onProcessExecutionTree(err) {
+			if (err) {
+				done(err);
+			} else {
+				var output;
+				var rootRelation = relationsTreeMap[relationsTreeMap.$root];
+				if (Array.isArray(mainQueryResult)) {
+					output = [];
+					for (var i = 0; i < mainQueryResult.length; i++) {
+						var singleResult = self._getSingleResult(relationsTreeMap, rootRelation, mainQueryResult[i], i);
+						if (singleResult) {
+							output.push(singleResult);
+						}
+					}
+				} else {
+					output = self._getSingleResult(relationsTreeMap, rootRelation, mainQueryResult, 0);
+				}
+				done(null, output);
+			}
+		}
+	);
+};
+
+Processor.prototype._getExecutionList = function(executionTree, executionNode, expandContext) {
+    var self = this;
+	
+	var relationTree = executionTree.getRelationTree();
+	var relationNode = executionTree.getRelationNode(executionNode.name);
+	var relationResult = relationNode.result;
+	
+	var executeDefinitions = [];
+	for (var i = 0; i < executionNode.children.length; i++) {
+		var executeDefinition;
+		
+		var childNodeName = executionNode.children[i];
+		var childExecutionNode = executionTree.getNode(childNodeName);
+		var childRelationNode = executionTree.getRelationNode(childNodeName);
+		if (childRelationNode.aggregateExpression) {
+			var relationResult = relationResult;
+			if (!Array.isArray(relationResult)) relationResult = [ relationResult ];
+			
+			for (var j = 0; j < relationResult.length; j++) {
+				executeDefinition = this._getExecuteDefinitionForItem(relationResult[j], childRelationNode, relationTree, expandContext);
+				executeDefinitions.push(executeDefinition);
+			}
+		} else {
+			executeDefinition = this._getExecuteDefinitionForNode(executionTree, childExecutionNode, expandContext);
+			executeDefinitions.push(executeDefinition);
+		}
+		
+		var childFunctions = this._getExecutionList(executionTree, childExecutionNode, expandContext);
+		executeDefinitions = executeDefinitions.concat(childFunctions);
+	}
+	
+	return executeDefinitions;
+};
+
+//Adjusts the filter for the query
+Processor.prototype._adjustFilterForExecuteDefinition = function (executionTree, executeDefinition) {
+	var filter;
+	
+	var relationNode = executeDefinition.relationNode;
+	
+	if (executeDefinition.dataItem) {
+		filter = this._getFilterFromSingleItem(executeDefinition.dataItem, relationNode);
+	} else {
+		var executionNode = executeDefinition.executionNode;
+		var parentRelationNode = executionTree.getRelationNode(relationNode.parentPath);
+		var includeArrays = !(parentRelationNode.parentPath && parentRelationNode.hasArrayValues); //only expand array fields if the parent relation is not an array. This means that if we have expanded a Likes (multiple to Users), we won't expand any array relations that are nested in it such as the UserComments (multiple relation to Comments).
+		filter = executionTree.getFilterFromExecutionNode(executionNode, includeArrays);
+	}
+
+	executeDefinition.executeOptions.filter = filter;
+};
+
+Processor.prototype._getExecuteDefinitionForItem = function (dataItem, relationNode, relationTree, expandContext) {
+	//Create ExecuteOptions object
+	var executeOptions = {};
+	executeOptions.select = relationNode.fieldsExpression;
+	executeOptions.sort = relationNode.sortExpression;
+	executeOptions.skip = relationNode.skip;
+	executeOptions.take = relationNode.take;
+	executeOptions.targetTypeName = relationNode.targetTypeName;
+	executeOptions.returnItemsCount = relationNode.returnItemsCount;
+	executeOptions.aggregate = relationNode.aggregateExpression;
+
+	return {
+		executeOptions: executeOptions,
+		relationNode: relationNode,
+		dataItem: dataItem
+	};
+};
+
+Processor.prototype._getExecuteDefinitionForNode = function (executionTree, executionNode, expandContext) {
+	//get the relation node for the only relation of the execution node.
+	var relationNode = executionTree.getRelationNode(executionNode.relations[0]);
+
+	// if we have such options executionNode should have only one relation.
+	var executeOptions = {};
+	executeOptions.select = relationNode.fieldsExpression;
+	executeOptions.sort = relationNode.sortExpression;
+	executeOptions.skip = relationNode.skip;
+	executeOptions.take = relationNode.take;
+	executeOptions.targetTypeName = relationNode.targetTypeName;
+	executeOptions.returnItemsCount = relationNode.returnItemsCount;
+	executeOptions.aggregate = relationNode.aggregateExpression;
+
+	return {
+		executeOptions: executeOptions,
+		relationNode: relationNode,
+		executionNode: executionNode
+	};
+};
+
+/**
+ * Gets filter expression from a single item for certain relation.
+ * along with user defined filters.
+ * @param dataItem - The dataItem to get filter for.
+ * @param relationNode - A RelationNode instance.
+ * @returns {*}
+ */
+Processor.prototype._getFilterFromSingleItem = function (dataItem, relationNode) {
+	var userDefinedFilter = relationNode.filterExpression;
+	var itemFilter;
+		
+	var relationFieldName = relationNode.relationField;
+	
+	if (relationNode.isInvertedRelation) {
+		itemFilter = {};
+		itemFilter[relationNode.relationField] = dataItem.Id;
+	} else {
+		var relationData = dataItem[relationFieldName];
+		if (relationData) {
+			if (Array.isArray(relationData)) {
+				itemFilter = { "Id": { "$in": relationData } };
+			} else {
+				itemFilter = { "Id": relationData };
+			}
+		} else {
+			//TODO
+			//Here we must stop the query, as there are no related items
+		}
+	}
+		
+	if (itemFilter && userDefinedFilter) {
+		return { '$and': [itemFilter, userDefinedFilter] };
+	} else if (itemFilter) {
+		return itemFilter;
+	} else if (userDefinedFilter) {
+		return userDefinedFilter;
+	} else {
+		return null;
+	}
+};
+
+Processor.Constants = Constants;
+
+module.exports = Processor;
+
+},{"./Constants":37,"./ExecutionTree":38,"./ExpandError":39,"./RelationTreeBuilder":42,"async":43}],41:[function(require,module,exports){
+'use strict';
+var Constants = require('./Constants');
+var _ = require('underscore');
+var ExpandError = require('./ExpandError');
+
+function RelationNode(options) {
+    this.parentPath = options.parent;
+    this.relationField = options.relationField;
+    this.path = options.path || options.parent + '.' + options.relationField;
+    this.fieldsExpression = options.fieldsExpression || {};
+    this.targetTypeName = options.targetTypeName;
+	//An array containing the paths(strings) of the child relations for this node
+    this.children = [];
+    this.isInvertedRelation = options.isInvertedRelation;
+    this.isArrayRoot = options.isArrayRoot; //used for validation of cases where various expand features are disabled for a GetAll scenario.
+    this.hasArrayValues = false;//set when we have executed the query. Used in validation scenarios where we do not have metadata about whether the relation is an array or not.
+
+    var expandExpression = options.expandExpression || {};
+
+    this.parentRelationField = expandExpression[Constants.ParentRelationFieldName] || Constants.IdFieldNameClient;
+    var relationField = this.isInvertedRelation ? this.path : this.relationField; //inverted relations appear with the full path - ContentType.Field - in the result when expanding.
+    this.userDefinedName = expandExpression[Constants.ReturnAsFieldName] || relationField;
+    _.extend(this.fieldsExpression, expandExpression[Constants.FieldsExpressionName]);
+    this.originalFieldsExpression = {};
+    _.extend(this.originalFieldsExpression, this.fieldsExpression);
+    this.singleFieldName = expandExpression[Constants.SingleFieldExpressionName];
+    this.filterExpression = expandExpression[Constants.FilterExpressionName];
+    this.sortExpression = expandExpression[Constants.SortExpressionName];
+    this.skip = expandExpression[Constants.SkipExpressionName];
+    this.take = this._getTakeLimit(expandExpression[Constants.TakeExpressionName], options.maxTakeValue);
+	this.returnItemsCount = expandExpression[Constants.ReturnItemsCountFieldName];
+	this.aggregateExpression = expandExpression[Constants.AggregateExpressionFieldName];
+}
+
+
+/**
+ * Gets the take limit depending on the application and the take value that the user has provided.
+ * @param clientTakeValue
+ * @param maxTakeValue
+ * @returns {number}
+ */
+RelationNode.prototype._getTakeLimit = function (clientTakeValue, maxTakeValue) {
+    maxTakeValue = maxTakeValue || Constants.DefaultTakeItemsCount;
+    if (clientTakeValue) {
+        if (clientTakeValue > maxTakeValue) {
+            throw new ExpandError('The maximum allowed take value when expanding relations is ' + maxTakeValue + '!');
+        }
+        return clientTakeValue;
+    } else {
+        return maxTakeValue;
+    }
+};
+
+/**
+ * Anyone using the bs-expand-processor module can set whether the relation is a multiple relation in the prepare phase.
+ * This will allow for certain restrictions to be enforced directly on the prepare phase instead of the execution phase.
+ */
+RelationNode.prototype.setIsArrayFromMetadata = function () {
+    this.isArrayFromMetadata = true;
+};
+
+RelationNode.prototype.isArray = function () {
+    // We can find out if a relation is an array in the following cases:
+    // From metadata in the API Server.
+    // All inverted relations are array.
+    // Once values have been received we can find out. This is used for scenarios where we do not have metadata about the relation (offline storage in SDK).
+    return this.isArrayFromMetadata || this.isInvertedRelation || this.hasArrayValues;
+};
+
+/**
+ * Creates a RelationNode object representing an external(inverted) relation.
+ * @param relationPath - A path to the external relation field (example: "Comments.ActivityId")
+ * @param expandExpression - The expand expression that contains all information about the relation
+ * @param parentRelationPath - Name of the parent relation.
+ * @returns {RelationNode}
+ */
+RelationNode.createInverted = function (relationPath, expandExpression, parentRelationPath, maxTakeValue) {
+    var relationNameParts = relationPath.split('.');
+	var targetTypeName = relationNameParts[0];
+	var relationField = relationNameParts[1];
+	
+	return RelationNode._create(relationPath, targetTypeName, relationField, parentRelationPath, maxTakeValue, expandExpression, true);
+};
+
+/**
+ * Creates a RelationNode object representing a regular relation.
+ * @param relationField - The field to expand (example: "Likes")
+ * @param expandExpression - The expand expression that contains all information about the relation
+ * @param parentRelationPath - Name of the parent relation.
+ * @returns {RelationNode}
+ */
+RelationNode.createRegular = function (relationField, expandExpression, parentRelationPath, maxTakeValue) {
+    var options = {};
+	
+	var relationPath = parentRelationPath + '.' + relationField;
+	var targetTypeName = expandExpression[Constants.TargetTypeNameFieldName];
+	
+	return RelationNode._create(relationPath, targetTypeName, relationField, parentRelationPath, maxTakeValue, expandExpression, false);
+};
+
+RelationNode._create = function(relationPath, targetTypeName, releationField, parentRelationPath, maxTakeValue, expandExpression, isInvertedRelation) {
+	var options = {};
+	
+	options.parent = parentRelationPath;
+    options.path = relationPath;
+    options.maxTakeValue = maxTakeValue;
+    options.validated = false;
+	options.expandExpression = expandExpression;
+	options.relationField = releationField;
+	options.targetTypeName = targetTypeName;
+    options.isInvertedRelation = isInvertedRelation;
+	
+    return new RelationNode(options);
+};
+
+module.exports = RelationNode;
+
+},{"./Constants":37,"./ExpandError":39,"underscore":44}],42:[function(require,module,exports){
+'use strict';
+var RelationNode = require('./RelationNode');
+var _ = require('underscore');
+var Constants = require('./Constants');
+var ExpandError = require('./ExpandError');
+
+//var relationFieldPropertyName = Constants.RelationExpressionName;
+
+var possibleExpandOptions = [
+    Constants.ExpandExpressionName,
+    Constants.ReturnAsFieldName,
+    Constants.FieldsExpressionName,
+    Constants.SingleFieldExpressionName,
+    Constants.SortExpressionName,
+    Constants.FilterExpressionName,
+    Constants.SkipExpressionName,
+    Constants.TakeExpressionName,
+    Constants.ParentRelationFieldName,
+    Constants.TargetTypeNameFieldName,
+	Constants.ReturnItemsCountFieldName,
+	Constants.AggregateExpressionFieldName
+];
+
+
+/**
+ * A class used to parse Expand expression and build a corresponding relation tree.
+ * In a process of creating the relation tree are performed several checks in order to force some limitations -
+ * 50 items both for master and child queries and entire amount of all queries limited to 20.
+ * Checks if the relation field given by the customer is valid (for example: user gives "Like" while the relation field is "Likes").
+ * Checks for possible expand options.
+ * @constructor
+ */
+var RelationTreeBuilder = function (expandExpression, mainTypeName, isArray, fieldsExpression, maxTakeValue, metadataProviderFunction, context) {
+    this.maxTakeValue = maxTakeValue;
+    this._metadataProviderFunction = metadataProviderFunction;
+    this.context = context;
+    this.expandExpression = this._processExpandExpression(expandExpression);
+    // mark the main query in order to avoid some duplication issues.
+    this.map = {};
+    this.map[mainTypeName] = new RelationNode({
+        targetTypeName: mainTypeName,
+        isArrayRoot: isArray,
+        fieldsExpression: fieldsExpression,
+        validated: true,
+        path: mainTypeName,
+        maxTakeValue: maxTakeValue
+    });
+    this.map[mainTypeName].originalFieldsExpression = {};
+    _.extend(this.map[mainTypeName].originalFieldsExpression, fieldsExpression);
+    this.map.$root = mainTypeName;
+};
+
+/**
+ * Creates fully qualified expand expression from shorthand usages:
+ * {"Likes": true} -> {"Likes": {"ReturnAs": "Likes"}}
+ * {"Likes": "LikesExpanded"} -> {"Likes": {"ReturnAs": "LikesExpanded"}}
+ * @param expandExpression
+ * @returns {*}
+ */
+RelationTreeBuilder.prototype._processExpandExpression = function (expandExpression) {
+    for (var property in expandExpression) {
+        if (expandExpression.hasOwnProperty(property)) {
+            if (typeof expandExpression[property] === 'boolean') {
+                expandExpression[property] = {};
+                expandExpression[property][Constants.ReturnAsFieldName] = property;
+            }
+            if (typeof expandExpression[property] === 'string') {
+                var relationField = expandExpression[property];
+                expandExpression[property] = {};
+                expandExpression[property][Constants.ReturnAsFieldName] = relationField;
+            }
+        }
+    }
+    return expandExpression;
+};
+
+/**
+ * Builds the relation tree.
+ * @param done
+ */
+RelationTreeBuilder.prototype.build = function (done) {
+    try {
+        this.buildMapInternal(this.expandExpression, this.map.$root);
+    } catch (e) {
+        return done(e);
+    }
+    var self = this;
+    require('async').series([
+        this.configureRelationTree.bind(this),
+        this.validateRelationTree.bind(this)
+    ], function (err) {
+        done(err, self.map);
+    });
+};
+
+/**
+ * An internal method which parses the expand expression and produces a basic relation tree (only names and parent relations).
+ * @param expandExpression - The expand expression which will be processed.
+ * @param rootName - The name of the root relation (master query) usually the name of the requested content type (Activities).
+ */
+RelationTreeBuilder.prototype.buildMapInternal = function (expandExpression, rootName) {
+    for (var relationName in expandExpression) {
+        if (expandExpression.hasOwnProperty(relationName)) {
+            var fieldExpression = expandExpression[relationName];
+			
+			//Check if all options in an expand field definition are recognized
+            for (var option in fieldExpression) {
+                if (fieldExpression.hasOwnProperty(option) && possibleExpandOptions.indexOf(option) === -1) {
+                    throw new ExpandError('\"' + option + '\"' + ' is not a valid option for Expand expression');
+                }
+            }
+
+            if (relationName.indexOf('.') > -1) { //If the relation is inverted
+                var invertedRelation = RelationNode.createInverted(relationName, fieldExpression, rootName, this.maxTakeValue);
+				
+                this.map[invertedRelation.path] = invertedRelation;
+                this.map[rootName].children.push(invertedRelation.path);
+				
+                // adds a field expression in the original fields expression in order to get the result for that field
+                RelationTreeBuilder.addFieldToFieldsExpression(this.map[invertedRelation.parentPath].originalFieldsExpression, invertedRelation.userDefinedName);
+
+                if (expandExpression[relationName][Constants.ExpandExpressionName]) {
+                    var processedExpandExpression = this._processExpandExpression(expandExpression[relationName][Constants.ExpandExpressionName]);
+                    this.buildMapInternal(processedExpandExpression, invertedRelation.path);
+                }
+            } else {
+                var relationNode = RelationNode.createRegular(relationName, fieldExpression, rootName, this.maxTakeValue);
+				
+                this.map[relationNode.path] = relationNode;
+                this.map[rootName].children.push(relationNode.path);
+
+                if (fieldExpression.hasOwnProperty(Constants.ExpandExpressionName)) {
+                    if (typeof(fieldExpression[Constants.ExpandExpressionName]) === 'object') {
+                        this.buildMapInternal(this._processExpandExpression(fieldExpression.Expand), relationNode.path);
+                    } else {
+                        throw new ExpandError(relationNode.path + '.Expand must be a valid expand expression!');
+                    }
+                }
+            }
+        }
+    }
+};
+
+/**
+ * Adds additional metadata which is necessary to execute a query.
+ * Name of the content type of the child relation get via relation field.
+ * @param done
+ */
+RelationTreeBuilder.prototype.configureRelationTree = function (done) {
+    if (this._metadataProviderFunction) {
+        var relationNames = [];
+        var self = this;
+
+        for (var relationPath in this.map) {
+            if (this.map.hasOwnProperty(relationPath)) {
+                if (this.map[relationPath].parentPath !== null) {
+                    relationNames.push(this.map[relationPath].relationField);
+                }
+            }
+        }
+
+        this._metadataProviderFunction(relationNames, this.map, this.context, function (err, result) {
+            done(err);
+        });
+    } else {
+        return done();
+    }
+};
+
+/**
+ * Performs several checks like:
+ * Validity of the relation field.
+ * To not use filter or sorting expression within a "GetByFilter" scenario.
+ * Does not allow to nest (expand multiple relation field) after a multiple relation.
+ * Does not allow to use both "Fields" and "SingleField" options.
+ * @param done
+ * @returns {*}
+ */
+RelationTreeBuilder.prototype.validateRelationTree = function (done) {
+    var errorMessage = '';
+    var EOL = '\r\n';
+    for (var relationPath in this.map) {
+        if (relationPath !== '$root' && this.map.hasOwnProperty(relationPath)) {
+            var relation = this.map[relationPath];
+            errorMessage += RelationTreeBuilder.validateSingleRelation(relation, this);
+            this.configureFieldsExpressionsForRelation(relation);
+        }
+    }
+    if (errorMessage !== '') {
+        var finalErrorMessage = errorMessage.substr(0, errorMessage.lastIndexOf(EOL));
+        var error = new ExpandError(finalErrorMessage);
+        return done(error);
+    } else {
+        done();
+    }
+};
+
+/**
+ * Add relation fields to parent relation fields expression if needed (otherwise relation cannot be established).
+ * @param relation - A relation which will be configured.
+ */
+RelationTreeBuilder.prototype.configureFieldsExpressionsForRelation = function (relation) {
+    if (relation.parentPath) {
+        var parentRelationFieldsExpression = this.map[relation.parentPath].fieldsExpression;
+        if (relation.isInvertedRelation) {
+            RelationTreeBuilder.addFieldToFieldsExpression(parentRelationFieldsExpression, relation.parentRelationField);
+        } else {
+            RelationTreeBuilder.addFieldToFieldsExpression(parentRelationFieldsExpression, relation.relationField);
+        }
+    }
+    if (relation.isInvertedRelation) {
+        RelationTreeBuilder.addFieldToFieldsExpression(relation.fieldsExpression, relation.relationField);
+    } else {
+        RelationTreeBuilder.addFieldToFieldsExpression(relation.fieldsExpression, Constants.IdFieldNameClient);
+    }
+    RelationTreeBuilder.adjustParentRelationFieldsExpression(this.map[relation.parentPath], relation);
+};
+
+
+/**
+ * Validates a single relation for all build-in limitations.
+ * @param relationNode - A relation which will be validated.
+ * @param relationTree - The whole relation tree.
+ * @returns {string} - Returns an error message with all errors or empty string if there is no errors.
+ */
+RelationTreeBuilder.validateSingleRelation = function (relationNode, relationTree) {
+    var errorMessage = '';
+	var relationTreeMap = relationTree.map;
+	var rootRelationNode = relationTreeMap[relationTreeMap.$root];
+    var EOL = '\r\n';
+    var isGetByFilterQuery = rootRelationNode.isArrayRoot;
+
+    if (relationNode.path === relationNode.parentPath) {
+        errorMessage += relationNode.path + ' has same parent which will cause an infinite loop.' + EOL;
+        return errorMessage;
+    }
+
+    if (relationNode.isArray()) {
+        var multipleQueriesCount = RelationTreeBuilder._getParentMultipleRelationsCount(relationNode, relationTree);
+        if (multipleQueriesCount > 0) {
+            errorMessage += 'Expand expression has multiple relation \"' + relationNode.path + '\" inside a multiple relation.';
+            errorMessage += EOL;
+        }
+
+        if (relationTreeMap[relationNode.parentPath] === rootRelationNode &&
+            isGetByFilterQuery &&
+            (relationNode.filterExpression || relationNode.sortExpression)) {
+            errorMessage += 'Filter and Sort are not allowed when expanding multiple items.';
+            errorMessage += EOL;
+        }
+		
+		if (relationTreeMap[relationNode.parentPath] === rootRelationNode &&
+            isGetByFilterQuery && relationNode.isInvertedRelation &&
+            relationNode.skip) {
+            errorMessage += 'Skip and Take are not supported when expanding multiple items with external relation.';
+            errorMessage += EOL;
+        }
+
+        //if (isGetByFilterQuery && relationNode.isInvertedRelation) {
+        //    errorMessage += 'Expanding an external content type is not allowed with GetByFilter scenario.';
+        //    errorMessage += EOL;
+        //}
+    }
+	
+    if (!relationNode.targetTypeName) {
+        errorMessage += 'Expanding relation \"' + relationNode.relationField + '\" has no target type name specified. You should use \"TargetTypeName\" to specify it.';
+        errorMessage += EOL;
+    }
+	
+    if (relationNode.fieldsExpression && Object.keys(relationNode.fieldsExpression).length && relationNode.singleFieldName) {
+        errorMessage += relationNode.path + ' ';
+        errorMessage += 'expand expression contains both \"Fields\" and \"SingleField\" expressions.';
+        errorMessage += EOL;
+    }
+	
+    if (relationNode.singleFieldName) {
+        if (relationNode.children) {
+            if (relationNode.children.length > 1) {
+                errorMessage += relationNode.path + ' has multiple expand expressions with a single field option.' + EOL;
+            }
+            if (relationNode.children.length === 1 && relationTreeMap[relationNode.children[0]].relationField !== relationNode.singleFieldName) {
+                errorMessage += 'Expand expression ' + relationNode.path;
+                errorMessage += ' single field \"' + relationNode.singleFieldName + '\"';
+                errorMessage += ' does not match child relation field \"' + relationTreeMap[relationNode.children[0]].relationField + '\".';
+                errorMessage += EOL;
+            }
+        }
+    }
+
+    return errorMessage;
+};
+
+/**
+ * Gets the count of parent multiple relations.
+ * @param relation - Starting relation.
+ * @returns {number} - count of all parent multiple relations
+ */
+RelationTreeBuilder._getParentMultipleRelationsCount = function (relationNode, relationTree) {
+    var result = 0;
+    var currentRelation = relationNode;
+    while (currentRelation.parentPath) {
+        var parentRelation = relationTree.map[currentRelation.parentPath];
+        if (parentRelation.isArray() && parentRelation.parentPath) {
+            result += 1;
+        }
+        currentRelation = parentRelation;
+    }
+    return result;
+};
+
+
+
+/**
+ * Adjusts fields expression of the parent relation based on paging setting of a relation (skip, take).
+ * In that case we put a "$slice" option within the parent relation fields expression.
+ * @param parentRelation
+ * @param relation
+ */
+RelationTreeBuilder.adjustParentRelationFieldsExpression = function (parentRelation, relation) {
+    if (!relation.isInvertedRelation && relation.take && typeof relation.take === 'number') {
+        // when relation has filter or sorting skip and take should not be transferred to the parent relation as $slice.
+        var shouldTransferPagingToParentRelation = relation.isArray() && !relation.filterExpression && !relation.sortExpression && parentRelation;
+        if (shouldTransferPagingToParentRelation) {
+            if (parentRelation.fieldsExpression === undefined) {
+                parentRelation.fieldsExpression = {};
+            }
+
+            if (relation.skip && typeof relation.skip === 'number') {
+                parentRelation.fieldsExpression[relation.relationField] = {
+                    '$slice': [relation.skip, relation.take]
+                };
+            } else {
+                parentRelation.fieldsExpression[relation.relationField] = {
+                    '$slice': relation.take
+                };
+            }
+            relation.take = null;
+            relation.skip = null;
+            relation.movedSkipTakeAsSlice = true;
+        }
+    }
+};
+
+/**
+ * Adds field to parent relation fields expression. For example if the relation field is excluded from the master request.
+ * @param fieldsExpression - Fields expression of the parent relation.
+ * @param relationField - Name of the field which should be returned.
+ */
+RelationTreeBuilder.addFieldToFieldsExpression = function (fieldsExpression, relationField) {
+    if (fieldsExpression === undefined || Object.keys(fieldsExpression).length === 0) {
+        return;
+    }
+    var isExclusive = RelationTreeBuilder.getIsFieldsExpressionExclusive(fieldsExpression);
+
+    if (isExclusive === undefined) {
+        return;
+    }
+
+    if (isExclusive) {
+        delete fieldsExpression[relationField];
+    } else {
+        fieldsExpression[relationField] = 1;
+    }
+};
+
+/**
+ * Gets if the fields expression is exclusive ("FieldName" : 0)
+ * @param fieldsExpression - Fields expression to check.
+ * @returns {*}
+ */
+RelationTreeBuilder.getIsFieldsExpressionExclusive = function (fieldsExpression) {
+    var isExclusive;
+    for (var fieldName in fieldsExpression) {
+        if (fieldName !== Constants.IdFieldNameClient && fieldsExpression.hasOwnProperty(fieldName)) {
+            if (isExclusive === undefined) {
+                if (fieldsExpression[fieldName] === 0) {
+                    isExclusive = true;
+                    break;
+                } else {
+                    if (typeof fieldsExpression[fieldName] === 'object') {
+                        continue;
+                    } else {
+                        // fieldsExpression[fieldName] === 1
+                        isExclusive = false;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return isExclusive;
+};
+
+module.exports = RelationTreeBuilder;
+
+},{"./Constants":37,"./ExpandError":39,"./RelationNode":41,"async":43,"underscore":44}],43:[function(require,module,exports){
+(function (process){
+/*!
+ * async
+ * https://github.com/caolan/async
+ *
+ * Copyright 2010-2014 Caolan McMahon
+ * Released under the MIT license
+ */
+/*jshint onevar: false, indent:4 */
+/*global setImmediate: false, setTimeout: false, console: false */
+(function () {
+
+    var async = {};
+
+    // global on the server, window in the browser
+    var root, previous_async;
+
+    root = this;
+    if (root != null) {
+      previous_async = root.async;
+    }
+
+    async.noConflict = function () {
+        root.async = previous_async;
+        return async;
+    };
+
+    function only_once(fn) {
+        var called = false;
+        return function() {
+            if (called) throw new Error("Callback was already called.");
+            called = true;
+            fn.apply(root, arguments);
+        }
+    }
+
+    //// cross-browser compatiblity functions ////
+
+    var _toString = Object.prototype.toString;
+
+    var _isArray = Array.isArray || function (obj) {
+        return _toString.call(obj) === '[object Array]';
+    };
+
+    var _each = function (arr, iterator) {
+        if (arr.forEach) {
+            return arr.forEach(iterator);
+        }
+        for (var i = 0; i < arr.length; i += 1) {
+            iterator(arr[i], i, arr);
+        }
+    };
+
+    var _map = function (arr, iterator) {
+        if (arr.map) {
+            return arr.map(iterator);
+        }
+        var results = [];
+        _each(arr, function (x, i, a) {
+            results.push(iterator(x, i, a));
+        });
+        return results;
+    };
+
+    var _reduce = function (arr, iterator, memo) {
+        if (arr.reduce) {
+            return arr.reduce(iterator, memo);
+        }
+        _each(arr, function (x, i, a) {
+            memo = iterator(memo, x, i, a);
+        });
+        return memo;
+    };
+
+    var _keys = function (obj) {
+        if (Object.keys) {
+            return Object.keys(obj);
+        }
+        var keys = [];
+        for (var k in obj) {
+            if (obj.hasOwnProperty(k)) {
+                keys.push(k);
+            }
+        }
+        return keys;
+    };
+
+    //// exported async module functions ////
+
+    //// nextTick implementation with browser-compatible fallback ////
+    if (typeof process === 'undefined' || !(process.nextTick)) {
+        if (typeof setImmediate === 'function') {
+            async.nextTick = function (fn) {
+                // not a direct alias for IE10 compatibility
+                setImmediate(fn);
+            };
+            async.setImmediate = async.nextTick;
+        }
+        else {
+            async.nextTick = function (fn) {
+                setTimeout(fn, 0);
+            };
+            async.setImmediate = async.nextTick;
+        }
+    }
+    else {
+        async.nextTick = process.nextTick;
+        if (typeof setImmediate !== 'undefined') {
+            async.setImmediate = function (fn) {
+              // not a direct alias for IE10 compatibility
+              setImmediate(fn);
+            };
+        }
+        else {
+            async.setImmediate = async.nextTick;
+        }
+    }
+
+    async.each = function (arr, iterator, callback) {
+        callback = callback || function () {};
+        if (!arr.length) {
+            return callback();
+        }
+        var completed = 0;
+        _each(arr, function (x) {
+            iterator(x, only_once(done) );
+        });
+        function done(err) {
+          if (err) {
+              callback(err);
+              callback = function () {};
+          }
+          else {
+              completed += 1;
+              if (completed >= arr.length) {
+                  callback();
+              }
+          }
+        }
+    };
+    async.forEach = async.each;
+
+    async.eachSeries = function (arr, iterator, callback) {
+        callback = callback || function () {};
+        if (!arr.length) {
+            return callback();
+        }
+        var completed = 0;
+        var iterate = function () {
+            iterator(arr[completed], function (err) {
+                if (err) {
+                    callback(err);
+                    callback = function () {};
+                }
+                else {
+                    completed += 1;
+                    if (completed >= arr.length) {
+                        callback();
+                    }
+                    else {
+                        iterate();
+                    }
+                }
+            });
+        };
+        iterate();
+    };
+    async.forEachSeries = async.eachSeries;
+
+    async.eachLimit = function (arr, limit, iterator, callback) {
+        var fn = _eachLimit(limit);
+        fn.apply(null, [arr, iterator, callback]);
+    };
+    async.forEachLimit = async.eachLimit;
+
+    var _eachLimit = function (limit) {
+
+        return function (arr, iterator, callback) {
+            callback = callback || function () {};
+            if (!arr.length || limit <= 0) {
+                return callback();
+            }
+            var completed = 0;
+            var started = 0;
+            var running = 0;
+
+            (function replenish () {
+                if (completed >= arr.length) {
+                    return callback();
+                }
+
+                while (running < limit && started < arr.length) {
+                    started += 1;
+                    running += 1;
+                    iterator(arr[started - 1], function (err) {
+                        if (err) {
+                            callback(err);
+                            callback = function () {};
+                        }
+                        else {
+                            completed += 1;
+                            running -= 1;
+                            if (completed >= arr.length) {
+                                callback();
+                            }
+                            else {
+                                replenish();
+                            }
+                        }
+                    });
+                }
+            })();
+        };
+    };
+
+
+    var doParallel = function (fn) {
+        return function () {
+            var args = Array.prototype.slice.call(arguments);
+            return fn.apply(null, [async.each].concat(args));
+        };
+    };
+    var doParallelLimit = function(limit, fn) {
+        return function () {
+            var args = Array.prototype.slice.call(arguments);
+            return fn.apply(null, [_eachLimit(limit)].concat(args));
+        };
+    };
+    var doSeries = function (fn) {
+        return function () {
+            var args = Array.prototype.slice.call(arguments);
+            return fn.apply(null, [async.eachSeries].concat(args));
+        };
+    };
+
+
+    var _asyncMap = function (eachfn, arr, iterator, callback) {
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        if (!callback) {
+            eachfn(arr, function (x, callback) {
+                iterator(x.value, function (err) {
+                    callback(err);
+                });
+            });
+        } else {
+            var results = [];
+            eachfn(arr, function (x, callback) {
+                iterator(x.value, function (err, v) {
+                    results[x.index] = v;
+                    callback(err);
+                });
+            }, function (err) {
+                callback(err, results);
+            });
+        }
+    };
+    async.map = doParallel(_asyncMap);
+    async.mapSeries = doSeries(_asyncMap);
+    async.mapLimit = function (arr, limit, iterator, callback) {
+        return _mapLimit(limit)(arr, iterator, callback);
+    };
+
+    var _mapLimit = function(limit) {
+        return doParallelLimit(limit, _asyncMap);
+    };
+
+    // reduce only has a series version, as doing reduce in parallel won't
+    // work in many situations.
+    async.reduce = function (arr, memo, iterator, callback) {
+        async.eachSeries(arr, function (x, callback) {
+            iterator(memo, x, function (err, v) {
+                memo = v;
+                callback(err);
+            });
+        }, function (err) {
+            callback(err, memo);
+        });
+    };
+    // inject alias
+    async.inject = async.reduce;
+    // foldl alias
+    async.foldl = async.reduce;
+
+    async.reduceRight = function (arr, memo, iterator, callback) {
+        var reversed = _map(arr, function (x) {
+            return x;
+        }).reverse();
+        async.reduce(reversed, memo, iterator, callback);
+    };
+    // foldr alias
+    async.foldr = async.reduceRight;
+
+    var _filter = function (eachfn, arr, iterator, callback) {
+        var results = [];
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        eachfn(arr, function (x, callback) {
+            iterator(x.value, function (v) {
+                if (v) {
+                    results.push(x);
+                }
+                callback();
+            });
+        }, function (err) {
+            callback(_map(results.sort(function (a, b) {
+                return a.index - b.index;
+            }), function (x) {
+                return x.value;
+            }));
+        });
+    };
+    async.filter = doParallel(_filter);
+    async.filterSeries = doSeries(_filter);
+    // select alias
+    async.select = async.filter;
+    async.selectSeries = async.filterSeries;
+
+    var _reject = function (eachfn, arr, iterator, callback) {
+        var results = [];
+        arr = _map(arr, function (x, i) {
+            return {index: i, value: x};
+        });
+        eachfn(arr, function (x, callback) {
+            iterator(x.value, function (v) {
+                if (!v) {
+                    results.push(x);
+                }
+                callback();
+            });
+        }, function (err) {
+            callback(_map(results.sort(function (a, b) {
+                return a.index - b.index;
+            }), function (x) {
+                return x.value;
+            }));
+        });
+    };
+    async.reject = doParallel(_reject);
+    async.rejectSeries = doSeries(_reject);
+
+    var _detect = function (eachfn, arr, iterator, main_callback) {
+        eachfn(arr, function (x, callback) {
+            iterator(x, function (result) {
+                if (result) {
+                    main_callback(x);
+                    main_callback = function () {};
+                }
+                else {
+                    callback();
+                }
+            });
+        }, function (err) {
+            main_callback();
+        });
+    };
+    async.detect = doParallel(_detect);
+    async.detectSeries = doSeries(_detect);
+
+    async.some = function (arr, iterator, main_callback) {
+        async.each(arr, function (x, callback) {
+            iterator(x, function (v) {
+                if (v) {
+                    main_callback(true);
+                    main_callback = function () {};
+                }
+                callback();
+            });
+        }, function (err) {
+            main_callback(false);
+        });
+    };
+    // any alias
+    async.any = async.some;
+
+    async.every = function (arr, iterator, main_callback) {
+        async.each(arr, function (x, callback) {
+            iterator(x, function (v) {
+                if (!v) {
+                    main_callback(false);
+                    main_callback = function () {};
+                }
+                callback();
+            });
+        }, function (err) {
+            main_callback(true);
+        });
+    };
+    // all alias
+    async.all = async.every;
+
+    async.sortBy = function (arr, iterator, callback) {
+        async.map(arr, function (x, callback) {
+            iterator(x, function (err, criteria) {
+                if (err) {
+                    callback(err);
+                }
+                else {
+                    callback(null, {value: x, criteria: criteria});
+                }
+            });
+        }, function (err, results) {
+            if (err) {
+                return callback(err);
+            }
+            else {
+                var fn = function (left, right) {
+                    var a = left.criteria, b = right.criteria;
+                    return a < b ? -1 : a > b ? 1 : 0;
+                };
+                callback(null, _map(results.sort(fn), function (x) {
+                    return x.value;
+                }));
+            }
+        });
+    };
+
+    async.auto = function (tasks, callback) {
+        callback = callback || function () {};
+        var keys = _keys(tasks);
+        var remainingTasks = keys.length
+        if (!remainingTasks) {
+            return callback();
+        }
+
+        var results = {};
+
+        var listeners = [];
+        var addListener = function (fn) {
+            listeners.unshift(fn);
+        };
+        var removeListener = function (fn) {
+            for (var i = 0; i < listeners.length; i += 1) {
+                if (listeners[i] === fn) {
+                    listeners.splice(i, 1);
+                    return;
+                }
+            }
+        };
+        var taskComplete = function () {
+            remainingTasks--
+            _each(listeners.slice(0), function (fn) {
+                fn();
+            });
+        };
+
+        addListener(function () {
+            if (!remainingTasks) {
+                var theCallback = callback;
+                // prevent final callback from calling itself if it errors
+                callback = function () {};
+
+                theCallback(null, results);
+            }
+        });
+
+        _each(keys, function (k) {
+            var task = _isArray(tasks[k]) ? tasks[k]: [tasks[k]];
+            var taskCallback = function (err) {
+                var args = Array.prototype.slice.call(arguments, 1);
+                if (args.length <= 1) {
+                    args = args[0];
+                }
+                if (err) {
+                    var safeResults = {};
+                    _each(_keys(results), function(rkey) {
+                        safeResults[rkey] = results[rkey];
+                    });
+                    safeResults[k] = args;
+                    callback(err, safeResults);
+                    // stop subsequent errors hitting callback multiple times
+                    callback = function () {};
+                }
+                else {
+                    results[k] = args;
+                    async.setImmediate(taskComplete);
+                }
+            };
+            var requires = task.slice(0, Math.abs(task.length - 1)) || [];
+            var ready = function () {
+                return _reduce(requires, function (a, x) {
+                    return (a && results.hasOwnProperty(x));
+                }, true) && !results.hasOwnProperty(k);
+            };
+            if (ready()) {
+                task[task.length - 1](taskCallback, results);
+            }
+            else {
+                var listener = function () {
+                    if (ready()) {
+                        removeListener(listener);
+                        task[task.length - 1](taskCallback, results);
+                    }
+                };
+                addListener(listener);
+            }
+        });
+    };
+
+    async.retry = function(times, task, callback) {
+        var DEFAULT_TIMES = 5;
+        var attempts = [];
+        // Use defaults if times not passed
+        if (typeof times === 'function') {
+            callback = task;
+            task = times;
+            times = DEFAULT_TIMES;
+        }
+        // Make sure times is a number
+        times = parseInt(times, 10) || DEFAULT_TIMES;
+        var wrappedTask = function(wrappedCallback, wrappedResults) {
+            var retryAttempt = function(task, finalAttempt) {
+                return function(seriesCallback) {
+                    task(function(err, result){
+                        seriesCallback(!err || finalAttempt, {err: err, result: result});
+                    }, wrappedResults);
+                };
+            };
+            while (times) {
+                attempts.push(retryAttempt(task, !(times-=1)));
+            }
+            async.series(attempts, function(done, data){
+                data = data[data.length - 1];
+                (wrappedCallback || callback)(data.err, data.result);
+            });
+        }
+        // If a callback is passed, run this as a controll flow
+        return callback ? wrappedTask() : wrappedTask
+    };
+
+    async.waterfall = function (tasks, callback) {
+        callback = callback || function () {};
+        if (!_isArray(tasks)) {
+          var err = new Error('First argument to waterfall must be an array of functions');
+          return callback(err);
+        }
+        if (!tasks.length) {
+            return callback();
+        }
+        var wrapIterator = function (iterator) {
+            return function (err) {
+                if (err) {
+                    callback.apply(null, arguments);
+                    callback = function () {};
+                }
+                else {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    var next = iterator.next();
+                    if (next) {
+                        args.push(wrapIterator(next));
+                    }
+                    else {
+                        args.push(callback);
+                    }
+                    async.setImmediate(function () {
+                        iterator.apply(null, args);
+                    });
+                }
+            };
+        };
+        wrapIterator(async.iterator(tasks))();
+    };
+
+    var _parallel = function(eachfn, tasks, callback) {
+        callback = callback || function () {};
+        if (_isArray(tasks)) {
+            eachfn.map(tasks, function (fn, callback) {
+                if (fn) {
+                    fn(function (err) {
+                        var args = Array.prototype.slice.call(arguments, 1);
+                        if (args.length <= 1) {
+                            args = args[0];
+                        }
+                        callback.call(null, err, args);
+                    });
+                }
+            }, callback);
+        }
+        else {
+            var results = {};
+            eachfn.each(_keys(tasks), function (k, callback) {
+                tasks[k](function (err) {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    if (args.length <= 1) {
+                        args = args[0];
+                    }
+                    results[k] = args;
+                    callback(err);
+                });
+            }, function (err) {
+                callback(err, results);
+            });
+        }
+    };
+
+    async.parallel = function (tasks, callback) {
+        _parallel({ map: async.map, each: async.each }, tasks, callback);
+    };
+
+    async.parallelLimit = function(tasks, limit, callback) {
+        _parallel({ map: _mapLimit(limit), each: _eachLimit(limit) }, tasks, callback);
+    };
+
+    async.series = function (tasks, callback) {
+        callback = callback || function () {};
+        if (_isArray(tasks)) {
+            async.mapSeries(tasks, function (fn, callback) {
+                if (fn) {
+                    fn(function (err) {
+                        var args = Array.prototype.slice.call(arguments, 1);
+                        if (args.length <= 1) {
+                            args = args[0];
+                        }
+                        callback.call(null, err, args);
+                    });
+                }
+            }, callback);
+        }
+        else {
+            var results = {};
+            async.eachSeries(_keys(tasks), function (k, callback) {
+                tasks[k](function (err) {
+                    var args = Array.prototype.slice.call(arguments, 1);
+                    if (args.length <= 1) {
+                        args = args[0];
+                    }
+                    results[k] = args;
+                    callback(err);
+                });
+            }, function (err) {
+                callback(err, results);
+            });
+        }
+    };
+
+    async.iterator = function (tasks) {
+        var makeCallback = function (index) {
+            var fn = function () {
+                if (tasks.length) {
+                    tasks[index].apply(null, arguments);
+                }
+                return fn.next();
+            };
+            fn.next = function () {
+                return (index < tasks.length - 1) ? makeCallback(index + 1): null;
+            };
+            return fn;
+        };
+        return makeCallback(0);
+    };
+
+    async.apply = function (fn) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        return function () {
+            return fn.apply(
+                null, args.concat(Array.prototype.slice.call(arguments))
+            );
+        };
+    };
+
+    var _concat = function (eachfn, arr, fn, callback) {
+        var r = [];
+        eachfn(arr, function (x, cb) {
+            fn(x, function (err, y) {
+                r = r.concat(y || []);
+                cb(err);
+            });
+        }, function (err) {
+            callback(err, r);
+        });
+    };
+    async.concat = doParallel(_concat);
+    async.concatSeries = doSeries(_concat);
+
+    async.whilst = function (test, iterator, callback) {
+        if (test()) {
+            iterator(function (err) {
+                if (err) {
+                    return callback(err);
+                }
+                async.whilst(test, iterator, callback);
+            });
+        }
+        else {
+            callback();
+        }
+    };
+
+    async.doWhilst = function (iterator, test, callback) {
+        iterator(function (err) {
+            if (err) {
+                return callback(err);
+            }
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (test.apply(null, args)) {
+                async.doWhilst(iterator, test, callback);
+            }
+            else {
+                callback();
+            }
+        });
+    };
+
+    async.until = function (test, iterator, callback) {
+        if (!test()) {
+            iterator(function (err) {
+                if (err) {
+                    return callback(err);
+                }
+                async.until(test, iterator, callback);
+            });
+        }
+        else {
+            callback();
+        }
+    };
+
+    async.doUntil = function (iterator, test, callback) {
+        iterator(function (err) {
+            if (err) {
+                return callback(err);
+            }
+            var args = Array.prototype.slice.call(arguments, 1);
+            if (!test.apply(null, args)) {
+                async.doUntil(iterator, test, callback);
+            }
+            else {
+                callback();
+            }
+        });
+    };
+
+    async.queue = function (worker, concurrency) {
+        if (concurrency === undefined) {
+            concurrency = 1;
+        }
+        function _insert(q, data, pos, callback) {
+          if (!q.started){
+            q.started = true;
+          }
+          if (!_isArray(data)) {
+              data = [data];
+          }
+          if(data.length == 0) {
+             // call drain immediately if there are no tasks
+             return async.setImmediate(function() {
+                 if (q.drain) {
+                     q.drain();
+                 }
+             });
+          }
+          _each(data, function(task) {
+              var item = {
+                  data: task,
+                  callback: typeof callback === 'function' ? callback : null
+              };
+
+              if (pos) {
+                q.tasks.unshift(item);
+              } else {
+                q.tasks.push(item);
+              }
+
+              if (q.saturated && q.tasks.length === q.concurrency) {
+                  q.saturated();
+              }
+              async.setImmediate(q.process);
+          });
+        }
+
+        var workers = 0;
+        var q = {
+            tasks: [],
+            concurrency: concurrency,
+            saturated: null,
+            empty: null,
+            drain: null,
+            started: false,
+            paused: false,
+            push: function (data, callback) {
+              _insert(q, data, false, callback);
+            },
+            kill: function () {
+              q.drain = null;
+              q.tasks = [];
+            },
+            unshift: function (data, callback) {
+              _insert(q, data, true, callback);
+            },
+            process: function () {
+                if (!q.paused && workers < q.concurrency && q.tasks.length) {
+                    var task = q.tasks.shift();
+                    if (q.empty && q.tasks.length === 0) {
+                        q.empty();
+                    }
+                    workers += 1;
+                    var next = function () {
+                        workers -= 1;
+                        if (task.callback) {
+                            task.callback.apply(task, arguments);
+                        }
+                        if (q.drain && q.tasks.length + workers === 0) {
+                            q.drain();
+                        }
+                        q.process();
+                    };
+                    var cb = only_once(next);
+                    worker(task.data, cb);
+                }
+            },
+            length: function () {
+                return q.tasks.length;
+            },
+            running: function () {
+                return workers;
+            },
+            idle: function() {
+                return q.tasks.length + workers === 0;
+            },
+            pause: function () {
+                if (q.paused === true) { return; }
+                q.paused = true;
+                q.process();
+            },
+            resume: function () {
+                if (q.paused === false) { return; }
+                q.paused = false;
+                q.process();
+            }
+        };
+        return q;
+    };
+    
+    async.priorityQueue = function (worker, concurrency) {
+        
+        function _compareTasks(a, b){
+          return a.priority - b.priority;
+        };
+        
+        function _binarySearch(sequence, item, compare) {
+          var beg = -1,
+              end = sequence.length - 1;
+          while (beg < end) {
+            var mid = beg + ((end - beg + 1) >>> 1);
+            if (compare(item, sequence[mid]) >= 0) {
+              beg = mid;
+            } else {
+              end = mid - 1;
+            }
+          }
+          return beg;
+        }
+        
+        function _insert(q, data, priority, callback) {
+          if (!q.started){
+            q.started = true;
+          }
+          if (!_isArray(data)) {
+              data = [data];
+          }
+          if(data.length == 0) {
+             // call drain immediately if there are no tasks
+             return async.setImmediate(function() {
+                 if (q.drain) {
+                     q.drain();
+                 }
+             });
+          }
+          _each(data, function(task) {
+              var item = {
+                  data: task,
+                  priority: priority,
+                  callback: typeof callback === 'function' ? callback : null
+              };
+              
+              q.tasks.splice(_binarySearch(q.tasks, item, _compareTasks) + 1, 0, item);
+
+              if (q.saturated && q.tasks.length === q.concurrency) {
+                  q.saturated();
+              }
+              async.setImmediate(q.process);
+          });
+        }
+        
+        // Start with a normal queue
+        var q = async.queue(worker, concurrency);
+        
+        // Override push to accept second parameter representing priority
+        q.push = function (data, priority, callback) {
+          _insert(q, data, priority, callback);
+        };
+        
+        // Remove unshift function
+        delete q.unshift;
+
+        return q;
+    };
+
+    async.cargo = function (worker, payload) {
+        var working     = false,
+            tasks       = [];
+
+        var cargo = {
+            tasks: tasks,
+            payload: payload,
+            saturated: null,
+            empty: null,
+            drain: null,
+            drained: true,
+            push: function (data, callback) {
+                if (!_isArray(data)) {
+                    data = [data];
+                }
+                _each(data, function(task) {
+                    tasks.push({
+                        data: task,
+                        callback: typeof callback === 'function' ? callback : null
+                    });
+                    cargo.drained = false;
+                    if (cargo.saturated && tasks.length === payload) {
+                        cargo.saturated();
+                    }
+                });
+                async.setImmediate(cargo.process);
+            },
+            process: function process() {
+                if (working) return;
+                if (tasks.length === 0) {
+                    if(cargo.drain && !cargo.drained) cargo.drain();
+                    cargo.drained = true;
+                    return;
+                }
+
+                var ts = typeof payload === 'number'
+                            ? tasks.splice(0, payload)
+                            : tasks.splice(0, tasks.length);
+
+                var ds = _map(ts, function (task) {
+                    return task.data;
+                });
+
+                if(cargo.empty) cargo.empty();
+                working = true;
+                worker(ds, function () {
+                    working = false;
+
+                    var args = arguments;
+                    _each(ts, function (data) {
+                        if (data.callback) {
+                            data.callback.apply(null, args);
+                        }
+                    });
+
+                    process();
+                });
+            },
+            length: function () {
+                return tasks.length;
+            },
+            running: function () {
+                return working;
+            }
+        };
+        return cargo;
+    };
+
+    var _console_fn = function (name) {
+        return function (fn) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            fn.apply(null, args.concat([function (err) {
+                var args = Array.prototype.slice.call(arguments, 1);
+                if (typeof console !== 'undefined') {
+                    if (err) {
+                        if (console.error) {
+                            console.error(err);
+                        }
+                    }
+                    else if (console[name]) {
+                        _each(args, function (x) {
+                            console[name](x);
+                        });
+                    }
+                }
+            }]));
+        };
+    };
+    async.log = _console_fn('log');
+    async.dir = _console_fn('dir');
+    /*async.info = _console_fn('info');
+    async.warn = _console_fn('warn');
+    async.error = _console_fn('error');*/
+
+    async.memoize = function (fn, hasher) {
+        var memo = {};
+        var queues = {};
+        hasher = hasher || function (x) {
+            return x;
+        };
+        var memoized = function () {
+            var args = Array.prototype.slice.call(arguments);
+            var callback = args.pop();
+            var key = hasher.apply(null, args);
+            if (key in memo) {
+                async.nextTick(function () {
+                    callback.apply(null, memo[key]);
+                });
+            }
+            else if (key in queues) {
+                queues[key].push(callback);
+            }
+            else {
+                queues[key] = [callback];
+                fn.apply(null, args.concat([function () {
+                    memo[key] = arguments;
+                    var q = queues[key];
+                    delete queues[key];
+                    for (var i = 0, l = q.length; i < l; i++) {
+                      q[i].apply(null, arguments);
+                    }
+                }]));
+            }
+        };
+        memoized.memo = memo;
+        memoized.unmemoized = fn;
+        return memoized;
+    };
+
+    async.unmemoize = function (fn) {
+      return function () {
+        return (fn.unmemoized || fn).apply(null, arguments);
+      };
+    };
+
+    async.times = function (count, iterator, callback) {
+        var counter = [];
+        for (var i = 0; i < count; i++) {
+            counter.push(i);
+        }
+        return async.map(counter, iterator, callback);
+    };
+
+    async.timesSeries = function (count, iterator, callback) {
+        var counter = [];
+        for (var i = 0; i < count; i++) {
+            counter.push(i);
+        }
+        return async.mapSeries(counter, iterator, callback);
+    };
+
+    async.seq = function (/* functions... */) {
+        var fns = arguments;
+        return function () {
+            var that = this;
+            var args = Array.prototype.slice.call(arguments);
+            var callback = args.pop();
+            async.reduce(fns, args, function (newargs, fn, cb) {
+                fn.apply(that, newargs.concat([function () {
+                    var err = arguments[0];
+                    var nextargs = Array.prototype.slice.call(arguments, 1);
+                    cb(err, nextargs);
+                }]))
+            },
+            function (err, results) {
+                callback.apply(that, [err].concat(results));
+            });
+        };
+    };
+
+    async.compose = function (/* functions... */) {
+      return async.seq.apply(null, Array.prototype.reverse.call(arguments));
+    };
+
+    var _applyEach = function (eachfn, fns /*args...*/) {
+        var go = function () {
+            var that = this;
+            var args = Array.prototype.slice.call(arguments);
+            var callback = args.pop();
+            return eachfn(fns, function (fn, cb) {
+                fn.apply(that, args.concat([cb]));
+            },
+            callback);
+        };
+        if (arguments.length > 2) {
+            var args = Array.prototype.slice.call(arguments, 2);
+            return go.apply(this, args);
+        }
+        else {
+            return go;
+        }
+    };
+    async.applyEach = doParallel(_applyEach);
+    async.applyEachSeries = doSeries(_applyEach);
+
+    async.forever = function (fn, callback) {
+        function next(err) {
+            if (err) {
+                if (callback) {
+                    return callback(err);
+                }
+                throw err;
+            }
+            fn(next);
+        }
+        next();
+    };
+
+    // Node.js
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = async;
+    }
+    // AMD / RequireJS
+    else if (typeof define !== 'undefined' && define.amd) {
+        define([], function () {
+            return async;
+        });
+    }
+    // included directly via <script> tag
+    else {
+        root.async = async;
+    }
+
+}());
+
+}).call(this,require('_process'))
+
+},{"_process":4}],44:[function(require,module,exports){
+arguments[4][35][0].apply(exports,arguments)
+},{"dup":35}],45:[function(require,module,exports){
 var EverliveError = require('./EverliveError').EverliveError;
 var constants = require('./constants');
 var _ = require('underscore');
@@ -15745,7 +15016,7 @@ module.exports = (function () {
 
     return AutoQueue;
 }());
-},{"./EverliveError":47,"./constants":59,"underscore":35}],45:[function(require,module,exports){
+},{"./EverliveError":48,"./constants":60,"underscore":35}],46:[function(require,module,exports){
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
@@ -15781,7 +15052,7 @@ var apply = function apply(obj) {
 module.exports = {
     apply: apply
 };
-},{"events":1}],46:[function(require,module,exports){
+},{"events":1}],47:[function(require,module,exports){
 var Setup = require('./Setup');
 var Data = require('./types/Data');
 var usersModule = require('./types/Users');
@@ -15813,21 +15084,26 @@ module.exports = (function () {
     /**
      * @class Everlive
      * @classdesc The constructor of the {{site.bs}} (Everlive) JavaScript SDK. This is the entry point for the SDK.
-     * @param {object|string} options - An object containing configuration options for the Setup object. Alternatively, you can pass a string representing your API key.
-     * @param {string} options.apiKey - Your API key.
+     * @param {object|string} options - An object containing configuration options for the Setup object. Alternatively, you can pass a string representing your App ID.
+     * @param {string} options.apiKey - Your API Key. *Deprecated*: use options.appId instead.
+     * @param {string} options.appId - Your Telerik Platform app's App ID.
      * @param {string} [options.url=//api.everlive.com/v1/] - The {{site.TelerikBackendServices}} URL.
      * @param {string} [options.token] - An authentication token. The instance will be associated with the provided previously obtained token.
      * @param {string} [options.tokenType=bearer] - The type of the token that is used for authentication.
+     * @param {string} [options.masterKey] - The master key of the Telerik Platform app. Use this authorization scheme for operations that require it or to override you app's access control. Use only for development purposes. Do not deploy it with your app.
      * @param {string} [options.scheme=http] - The URI scheme used to make requests. Supported values: http, https
      * @param {boolean} [options.parseOnlyCompleteDateTimeObjects=false] - If set to true, the SDK will parse only complete date strings (according to the ISO 8601 standard).
      * @param {boolean} [options.emulatorMode=false] - Set this option to true to set the SDK in emulator mode.
-     * @param {object|boolean} [options.offline] - Set this option to true to use the default offline settings.
-	 * @param {boolean} [options.offline.enabled=false] - When using an object to initialize Offline Support with non-default settings, set this option to enable or disable Offline Support.
+     * @param {object|boolean} [options.offline] - Set this option to true to enable Offline Support using the default offline settings.
+     * @param {boolean} [options.offline.enabled=false] - When using an object to initialize Offline Support with non-default settings, set this option to enable or disable Offline Support.
      * @param {boolean} [options.offline.isOnline=true] - Whether the storage is in online mode initially.
      * @param {ConflictResolutionStrategy|function} [options.offline.conflicts.strategy=ConflictResolutionStrategy.ClientWins] - A constant specifying the conflict resolution strategy or a function used to resolve the conflicts.
-     * @param {StorageProvider|object} [options.offline.storage.provider=StorageProvider.LocalStorage] - An object specifying settings for the offline storage provider.
-     * @param {string} [options.offline.storage.storagePath=el_store] - A relative path specifying where the files will be saved if file system is used for persistence for item metadata.
-     * @param {number} [options.offline.storage.requestedQuota=10485760] - How much memory (in bytes) to be requested when using the file system for persistence. This option is only valid for Chrome as the other platforms use all the available space.
+     * @param {boolean} [options.offline.syncUnmodified=false] - Whether to synchronize items updated or deleted on the server but not on the device.
+     * @param {object} [options.offline.storage] - An object specifying settings for the offline storage.
+     * @param {string} [options.offline.storage.provider=_platform dependant_] - Allows you to select an offline storage provider. Possible values: Everlive.Constants.StorageProvider.LocalStorage, Everlive.Constants.StorageProvider.FileSystem, Everlive.Constants.StorageProvider.Custom. Default value: Cordova, Web: Everlive.Constants.StorageProvider.LocalStorage; NativeScript, Node.js: Everlive.Constants.StorageProvider.FileSystem.
+     * @param {string} [options.offline.storage.storagePath=el_store] - A relative path specifying where data will be saved if the FileSystem provider is used.
+     * @param {number} [options.offline.storage.requestedQuota=10485760] - How much memory (in bytes) to be requested when using FileSystem for persistence. This option is only valid for Chrome as the other platforms use all the available space.
+     * @param {object} [options.offline.storage.implementation] - When storage.provider is set to custom, use this object to specify your custom offline storage implementation.
      * @param {string} [options.offline.encryption.key] - A key that will be used to encrypt the data stored offline.
      * @param {string} [options.offline.files.storagePath=el_file_store] - A relative path specifying where the files will be saved if file system is used for persistence of files in offline mode.
      * @param {string} [options.offline.files.metaPath=el_file_mapping] - A relative path specifying where the metadata file will be saved if file system is used for persistence of files in offline mode.
@@ -15849,12 +15125,20 @@ module.exports = (function () {
      * @param {object} [options.helpers.html.attributes.fileSource=data-href] - A custom name for the attribute to be used to set the anchor source.
      * @param {object} [options.helpers.html.attributes.enableOffline=data-offline] - A custom name for the attribute to be used to control offline processing.
      * @param {object} [options.helpers.html.attributes.enableResponsive=data-responsive] - A custom name for the attribute to be used to control Responsive Images processing.
+     * @param {object|boolean} [options.caching=false] - Set this option to true to enable caching using the default cache settings.
+     * @param {number} [options.caching.maxAge=60] - Global setting for maximum age of cached items in minutes.
+     * @param {boolean} [options.caching.enabled=false] - Global setting for enabling or disabling cache.
+     * @param {object} [options.caching.typeSettings] - Specify per-content-type settings that override the global settings.
      */
     function Everlive(options) {
         var self = this;
         this.setup = new Setup(options);
+        //some fields from the setup need to propagate to the initializations, e.g. the appId and apiKey
+        //since they are being set correctly when appId or apiKey is passed to the options
+        var fieldsToPropagate = _.pick(this.setup, ['appId', 'apiKey']);
+        var extendedOptions = _.extend({}, options, fieldsToPropagate);
         _.each(initializations, function (init) {
-            init.func.call(self, options);
+            init.func.call(self, extendedOptions);
         });
 
         if (Everlive.$ === null) {
@@ -16026,13 +15310,13 @@ module.exports = (function () {
      * @method request
      * @memberOf Everlive.prototype
      * @param {object} options Object used to configure the request.
-     * @param {object} [options.endpoint] The endpoint of the {{site.bs}} JavaScript API relative to the API key section. (For example, options.endpoint = MyType will make a request to the MyType type.)
+     * @param {object} [options.endpoint] The endpoint of the {{site.bs}} JavaScript API relative to the App ID section. (For example, options.endpoint = MyType will make a request to the MyType type.)
      * @param {HttpMethod} [options.method] HTTP request method.
      * @param {object} [options.data] Data to be sent with the request.
      * @param {Function} [options.success] Success callback that will be called when the request finishes successfully.
      * @param {Function} [options.error] Error callback to be called in case of an error.
      * @param {object} [options.headers] Additional headers to be included in the request.
-     * @param {Query|object} [options.filter] This is either a {@link Query} or a [filter]({% slug rest-api-querying-filtering %}) expression.
+     * @param {Query|object} [options.filter] This is either a {@link Query} or a [filter](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) expression.
      * @param {boolean} [options.authHeaders=true] When set to false, no Authorization headers will be sent with the request.
      * @returns {function} The request configuration object containing the `send` function that sends the request.
      */
@@ -16206,7 +15490,7 @@ module.exports = (function () {
     return Everlive;
 }());
 
-},{"./EventEmitterProxy":45,"./EverliveError":47,"./Push":51,"./Request":52,"./Setup":53,"./auth/Authentication":54,"./caching/caching":57,"./common":58,"./constants":59,"./helpers/helpers":62,"./mixins/mixins":68,"./offline/offline":76,"./types/Data":96,"./types/Files":97,"./types/Users":98,"./utils":99}],47:[function(require,module,exports){
+},{"./EventEmitterProxy":46,"./EverliveError":48,"./Push":52,"./Request":53,"./Setup":54,"./auth/Authentication":55,"./caching/caching":58,"./common":59,"./constants":60,"./helpers/helpers":63,"./mixins/mixins":69,"./offline/offline":77,"./types/Data":99,"./types/Files":100,"./types/Users":101,"./utils":102}],48:[function(require,module,exports){
 var EverliveErrors = {
     itemNotFound: {
         code: 801,
@@ -16228,8 +15512,16 @@ var EverliveErrors = {
         code: 10004,
         message: 'Synchronization cancelled by user.'
     },
+    syncErrorUnknown: {
+        code: 10005,
+        message: 'An unknown error occurred while synchronizing. Please make sure there is internet connectivity.'
+    },
     operationNotSupportedOffline: {
         code: 20000 // the error message is created dynamically based on the query filter for offline storage
+    },
+    invalidId: {
+        code: 20001,
+        message: 'Invalid or missing Id in model.'
     },
     generalDatabaseError: {
         code: 107,
@@ -16273,7 +15565,11 @@ var EverliveErrors = {
     },
     filesNotSupportedInBrowser: {
         code: 706,
-        message: 'Offline files are not supported in web browsers.'
+        message: 'Create and Update operations are not supported for Files in browsers while in offline mode.'
+    },
+    pushNotSupportedOffline: {
+        code: 707,
+        message: 'Push is not supported in offline mode.'
     }
 };
 
@@ -16318,7 +15614,8 @@ var EverliveError = (function () {
 
 var DeviceRegistrationError = (function () {
     var DeviceRegistrationError = function (errorType, message, additionalInformation) {
-        EverliveError.call(this, message);
+        var errorCode = additionalInformation ? additionalInformation.code : undefined;
+        EverliveError.call(this, message, errorCode);
         this.errorType = errorType;
         this.message = message;
         if (additionalInformation !== undefined) {
@@ -16360,10 +15657,11 @@ module.exports = {
     EverliveErrors: EverliveErrors,
     DeviceRegistrationError: DeviceRegistrationError
 };
-},{}],48:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 var Processor = require('./common').Processor;
 var DataQuery = require('./query/DataQuery');
 var Query = require('./query/Query');
+var AggregateQuery = require('./query/AggregateQuery');
 var EverliveError = require('./EverliveError').EverliveError;
 var constants = require('./constants');
 
@@ -16371,12 +15669,20 @@ module.exports = (function () {
     return new Processor({
         executionNodeFunction: function (node, expandContext, done) {
             var targetTypeName = node.targetTypeName.toLowerCase() === constants.FilesTypeNameLegacy ? constants.FilesTypeName : node.targetTypeName;
-
-            var query = new DataQuery({
-                operation: DataQuery.operations.read,
-                collectionName: targetTypeName,
-                filter: new Query(node.filter, node.select, node.sort, node.skip, node.take)
-            });
+            var query;
+            if (node.aggregate) {
+                query = new DataQuery({
+                    operation: DataQuery.operations.Aggregate,
+                    collectionName: targetTypeName,
+                    query: new AggregateQuery(node.filter, node.select, node.sort, node.skip, node.take, null, node.aggregate)
+                });
+            } else {
+                query = new DataQuery({
+                    operation: DataQuery.operations.Read,
+                    collectionName: targetTypeName,
+                    query: new Query(node.filter, node.select, node.sort, node.skip, node.take)
+                });
+            }
 
             expandContext.offlineModule.processQuery(query).then(function (data) {
                 done(null, data.result);
@@ -16385,7 +15691,7 @@ module.exports = (function () {
     });
 }());
 
-},{"./EverliveError":47,"./common":58,"./constants":59,"./query/DataQuery":85,"./query/Query":86}],49:[function(require,module,exports){
+},{"./EverliveError":48,"./common":59,"./constants":60,"./query/AggregateQuery":86,"./query/DataQuery":87,"./query/Query":89}],50:[function(require,module,exports){
 module.exports = (function () {
     function Expression(operator, operands) {
         this.operator = operator;
@@ -16400,7 +15706,7 @@ module.exports = (function () {
 
     return Expression;
 }());
-},{}],50:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 module.exports = (function () {
     //TODO add a function for calculating the distances in geospatial queries
 
@@ -16417,15 +15723,17 @@ module.exports = (function () {
 
     return GeoPoint;
 }());
-},{}],51:[function(require,module,exports){
+},{}],52:[function(require,module,exports){
 var utils = require('./utils');
+var platform = require('./everlive.platform');
 var buildPromise = utils.buildPromise;
 var DeviceRegistrationResult = utils.DeviceRegistrationResult;
 var everliveErrorModule = require('./EverliveError');
 var DeviceRegistrationError = everliveErrorModule.DeviceRegistrationError;
 var EverliveError = everliveErrorModule.EverliveError;
 var CurrentDevice = require('./push/CurrentDevice');
-var Platform = require('./constants').Platform;
+var constants = require('./constants');
+var Platform = constants.Platform;
 
 module.exports = (function () {
     /**
@@ -16436,8 +15744,8 @@ module.exports = (function () {
      */
     function Push(el) {
         this._el = el;
-        this.notifications = el.data('Push/Notifications');
-        this.devices = el.data('Push/Devices');
+        this.notifications = el.data(constants.Push.NotificationsType);
+        this.devices = el.data(constants.Push.DevicesType);
     }
 
     Push.prototype = {
@@ -16448,7 +15756,7 @@ module.exports = (function () {
          * @memberOf Push.prototype
          */
         ensurePushIsAvailable: function () {
-            CurrentDevice.ensurePushIsAvailable();            
+            CurrentDevice.ensurePushIsAvailable();
         },
         /**
          * Returns the current device for sending push notifications
@@ -16465,15 +15773,13 @@ module.exports = (function () {
 
             if (arguments.length === 0) {
                 emulatorMode = this._el.setup._emulatorMode;
-            }            
+            }
 
             if (!this._currentDevice) {
                 this._currentDevice = new CurrentDevice(this);
             }
 
-            var inAppBuilderSimulator = typeof window !== undefined && window.navigator && window.navigator.simulator;
-
-            this._currentDevice.emulatorMode = emulatorMode || inAppBuilderSimulator;
+            this._currentDevice.emulatorMode = emulatorMode || utils._inAppBuilderSimulator();
 
             return this._currentDevice;
         },
@@ -16658,6 +15964,8 @@ module.exports = (function () {
          * @param {Function} [onError] Callback to invoke on error.
          */
         setBadgeNumber: function (badge, onSuccess, onError) {
+            var self = this;
+
             this.ensurePushIsAvailable();
 
             badge = parseInt(badge);
@@ -16675,7 +15983,7 @@ module.exports = (function () {
             return buildPromise(function (successCb, errorCb) {
                 currentDevice._pushHandler.devices.updateSingle(deviceRegistration).then(
                     function () {
-                        if (window.plugins && window.plugins.pushNotification) {
+                        if (window.plugins && window.plugins.pushNotification && !utils._inAppBuilderSimulator()) {
                             return window.plugins.pushNotification.setApplicationIconBadgeNumber(successCb, errorCb, badge);
                         } else {
                             return successCb();
@@ -16745,8 +16053,6 @@ module.exports = (function () {
          * @param {Function} [onError] Callback to invoke on error.
          */
         send: function (notification, onSuccess, onError) {
-            this.ensurePushIsAvailable();
-
             return this.notifications.create.apply(this.notifications, arguments);
         },
 
@@ -16778,12 +16084,34 @@ module.exports = (function () {
 
             var currentDevice = this.currentDevice();
             return currentDevice.areNotificationsEnabled(options, onSuccess, onError);
+        },
+
+        /**
+         * Currently available only for iOS
+         * Use this method in case you are working with iOS interactive push notifications in background mode, including TextInput, or iOS silent push notifications
+         * Call it once you are done with processing your push notification in notificationCallbackIOS.
+         * @method notificationProcessed
+         * @name notificationProcessed
+         * @memberOf Push.prototype
+         */
+        /**
+         * Use this method in case you are working with iOS interactive push notifications in background mode, including TextInput, or iOS silent push notifications
+         * Call it once you are done with processing your push notification in notificationCallbackIOS.
+         * @method notificationProcessed
+         * @name notificationProcessed
+         * @memberOf Push.prototype
+         */
+        notificationProcessed: function () {
+            this.ensurePushIsAvailable();
+
+            var currentDevice = this.currentDevice();
+            currentDevice.notificationProcessed();
         }
     };
 
     return Push;
 }());
-},{"./EverliveError":47,"./constants":59,"./push/CurrentDevice":83,"./utils":99}],52:[function(require,module,exports){
+},{"./EverliveError":48,"./constants":60,"./everlive.platform":62,"./push/CurrentDevice":84,"./utils":102}],53:[function(require,module,exports){
 var utils = require('./utils');
 var rsvp = require('./common').rsvp;
 var buildAuthHeader = utils.buildAuthHeader;
@@ -16792,9 +16120,12 @@ var guardUnset = utils.guardUnset;
 var common = require('./common');
 var reqwest = common.reqwest;
 var _ = common._;
-var Headers = require('./constants').Headers;
+var Constants = require('./constants');
+var Headers = Constants.Headers;
+var EncodableHeaders = Constants.EncodableHeaders;
 var isNodejs = require('./everlive.platform').isNodejs;
 var Query = require('./query/Query');
+var AggregateQuery = require('./query/AggregateQuery');
 
 module.exports = (function () {
     var _self;
@@ -16809,11 +16140,23 @@ module.exports = (function () {
         this.method = null;
         this.endpoint = null;
         this.data = null;
-        this.headers = {};
         // TODO success and error callbacks should be uniformed for all ajax libs
         this.success = null;
         this.error = null;
         this.parse = Request.parsers.simple;
+
+        var _headers = {};
+        //make sure that the headers are always normalized
+        Object.defineProperty(this, 'headers', {
+            get: function () {
+                return _headers;
+            },
+            set: function (val) {
+                // If we let two identical headers with different casing slip into a request
+                // the browser concatenates them which brings chaos to earth
+                _headers = utils.normalizeKeys(val);
+            }
+        });
 
         _.extend(this, options);
         _self = this;
@@ -16836,49 +16179,76 @@ module.exports = (function () {
         buildQueryHeaders: function buildQueryHeaders(query) {
             if (query) {
                 if (query instanceof Query) {
-                    return Request.prototype._buildQueryHeaders(query);
+                    return this._buildQueryHeaders(query);
+                } else {
+                    return this._buildFilterHeader(query.filter);
                 }
-                else {
-                    return Request.prototype._buildFilterHeader(query);
-                }
-            }
-            else {
+            } else {
                 return {};
             }
         },
         // Initialize the Request object by using the passed options
         _init: function (options) {
-            _.extend(this.headers, this.buildAuthHeader(this.setup, options), this.buildQueryHeaders(options.filter), options.headers);
+            _.extend(this.headers, this.buildAuthHeader(this.setup, options), this.buildQueryHeaders(options.query));
+            this.clearEmptyHeaders();
+            this.encodeHeaders();
         },
         // Translates an Everlive.Query to request headers
         _buildQueryHeaders: function (query) {
             query = query.build();
             var headers = {};
-            if (query.$where !== null) {
-                headers[Headers.filter] = JSON.stringify(query.$where);
-            }
-            if (query.$select !== null) {
-                headers[Headers.select] = JSON.stringify(query.$select);
-            }
-            if (query.$sort !== null) {
-                headers[Headers.sort] = JSON.stringify(query.$sort);
-            }
-            if (query.$skip !== null) {
-                headers[Headers.skip] = query.$skip;
-            }
-            if (query.$take !== null) {
-                headers[Headers.take] = query.$take;
-            }
-            if (query.$expand !== null) {
-                headers[Headers.expand] = JSON.stringify(query.$expand);
-            }
+            this._setHeader(headers, query.$where, Headers.filter);
+            this._setHeader(headers, query.$select, Headers.select);
+            this._setHeader(headers, query.$sort, Headers.sort);
+            this._setHeader(headers, query.$skip, Headers.skip);
+            this._setHeader(headers, query.$take, Headers.take);
+            this._setHeader(headers, query.$expand, Headers.expand);
+            this._setHeader(headers, query.$aggregate, Headers.aggregate);
+
             return headers;
         },
         // Creates a header from a simple filter
         _buildFilterHeader: function (filter) {
             var headers = {};
-            headers[Headers.filter] = JSON.stringify(filter);
+            this._setHeader(headers, filter, Headers.filter);
             return headers;
+        },
+        _setHeader: function _setHeader(headers, inputHeader, targetHeaderName) {
+            //make sure not to put nulls or something of the sort as a header
+            if (inputHeader) {
+                headers[targetHeaderName] = JSON.stringify(inputHeader);
+            }
+        },
+        clearEmptyHeaders: function clearEmptyHeaders() {
+            var headers = this.headers;
+            _.each(headers, function (headerString, key) {
+                var header;
+                try {
+                    //try to parse the header as object
+                    header = JSON.parse(headerString);
+                    //make sure that the header is a string if it is parsed as a number
+                    if (!_.isObject(header)) {
+                        header += '';
+                    }
+                }
+                catch(e) {
+                    //if it is not an object it probably should stay that way
+                    header = headerString;
+                }
+
+                //if the header is an empty string or empty object it will not be sent
+                if (_.isEmpty(header)) {
+                    delete headers[key];
+                }
+            });
+        },
+        encodeHeaders: function encodeHeaders() {
+            var headers = this.headers;
+            _.each(EncodableHeaders, function (headerName) {
+                if (headers[headerName] !== undefined) {
+                    headers[headerName] = encodeURIComponent(headers[headerName]);
+                }
+            });
         }
     };
 
@@ -16901,7 +16271,6 @@ module.exports = (function () {
         }
     };
 
-    // TODO built for request
     if (typeof Request.sendRequest === 'undefined') {
         Request.sendRequest = function (request) {
             var url = request.buildUrl(request.setup) + request.endpoint;
@@ -16945,7 +16314,7 @@ module.exports = (function () {
 
     return Request;
 }());
-},{"./common":58,"./constants":59,"./everlive.platform":61,"./query/Query":86,"./utils":99}],53:[function(require,module,exports){
+},{"./common":59,"./constants":60,"./everlive.platform":62,"./query/AggregateQuery":86,"./query/Query":89,"./utils":102}],54:[function(require,module,exports){
 var _ = require('./common')._;
 var constants = require('./constants');
 var AuthenticationSetup = require('./auth/AuthenticationSetup');
@@ -16956,19 +16325,25 @@ module.exports = (function () {
     // An object that keeps information about an Everlive connection
     function Setup(options) {
         this.url = everliveUrl;
-        this.apiKey = null;
+        this.appId = null;
         this.masterKey = null;
         this.token = null;
         this.tokenType = null;
         this.principalId = null;
         this.scheme = 'http'; // http or https
         this.parseOnlyCompleteDateTimeObjects = false;
+
         if (typeof options === 'string') {
-            this.apiKey = options;
+            this.appId = options;
         } else {
             this._emulatorMode = options.emulatorMode;
             _.extend(this, options);
+            if(options.apiKey) {
+                this.appId = options.apiKey; // backward compatibility
+            }
         }
+
+        this.apiKey = this.appId;
 
         this.authentication = new AuthenticationSetup(this, options.authentication);
     }
@@ -16990,7 +16365,7 @@ module.exports = (function () {
     return Setup;
 
 }());
-},{"./auth/AuthenticationSetup":55,"./common":58,"./constants":59}],54:[function(require,module,exports){
+},{"./auth/AuthenticationSetup":56,"./common":59,"./constants":60}],55:[function(require,module,exports){
 'use strict';
 var utils = require('../utils');
 var DataQuery = require('../query/DataQuery');
@@ -17057,7 +16432,7 @@ module.exports = (function () {
             };
 
             var query = new DataQuery({
-                operation: DataQuery.operations.userLogin,
+                operation: DataQuery.operations.UserLogin,
                 collectionName: usersCollectionName,
                 data: {
                     username: username,
@@ -17105,7 +16480,7 @@ module.exports = (function () {
             };
 
             var query = new DataQuery({
-                operation: DataQuery.operations.userLogout,
+                operation: DataQuery.operations.UserLogout,
                 collectionName: usersCollectionName,
                 skipAuth: true,
                 onSuccess: successFunc,
@@ -17415,7 +16790,7 @@ module.exports = (function () {
             };
 
             var query = new DataQuery({
-                operation: DataQuery.operations.userLoginWithProvider,
+                operation: DataQuery.operations.UserLoginWithProvider,
                 collectionName: usersCollectionName,
                 data: user,
                 authHeaders: false,
@@ -17432,7 +16807,7 @@ module.exports = (function () {
     return Authentication;
 }());
 
-},{"../Everlive":46,"../EverliveError":47,"../Request":52,"../constants":59,"../query/DataQuery":85,"../storages/LocalStore":93,"../utils":99}],55:[function(require,module,exports){
+},{"../Everlive":47,"../EverliveError":48,"../Request":53,"../constants":60,"../query/DataQuery":87,"../storages/LocalStore":96,"../utils":102}],56:[function(require,module,exports){
 'use strict';
 module.exports = (function () {
     var AuthenticationSetup = function (everlive, options) {
@@ -17443,7 +16818,7 @@ module.exports = (function () {
 
     return AuthenticationSetup;
 }());
-},{}],56:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 'use strict';
 
 var constants = require('../constants');
@@ -17468,11 +16843,21 @@ var CacheModule = function (options, everlive) {
 };
 
 var cacheableOperations = [
-    DataQuery.operations.read,
-    DataQuery.operations.readById,
-    DataQuery.operations.count
+    DataQuery.operations.Read,
+    DataQuery.operations.ReadById,
+    DataQuery.operations.Count
 ];
 
+/**
+ * @class CacheModule
+ * @classDesc A class providing access to the various caching features.
+ */
+
+/**
+ * Represents the {@link CacheModule} class.
+ * @memberOf Everlive.prototype
+ * @member {CacheModule} cache
+ */
 CacheModule.prototype = {
     _hash: function (obj) {
         return jsonStringify(obj);
@@ -17482,7 +16867,7 @@ CacheModule.prototype = {
     _initStore: function (sdkOptions) {
         if (!this.persister) {
             var offlineStorageOptions = buildOfflineStorageOptions(sdkOptions);
-            var storageKey = this.options.storage.storagePath;
+            var storageKey = this.options.storage.storagePath + '_' + sdkOptions.apiKey;
 
             this.persister = persisters.getPersister(storageKey, offlineStorageOptions);
         }
@@ -17558,8 +16943,9 @@ CacheModule.prototype = {
         var ignoreCacheForQuery = dataQuery.ignoreCache;
 
         var isUnsupportedOffline = this.isQueryUnsupportedOffline(dataQuery);
+        var isForCurrentUser = dataQuery.additionalOptions && dataQuery.additionalOptions.id === 'me';
 
-        return operationShouldSkipCache || cacheDisabledForContentType || ignoreCacheForQuery || isUnsupportedOffline;
+        return operationShouldSkipCache || cacheDisabledForContentType || isForCurrentUser || ignoreCacheForQuery || isUnsupportedOffline;
     },
 
     _cacheDataQuery: function (dataQuery) {
@@ -17592,6 +16978,11 @@ CacheModule.prototype = {
                                         return self._cacheQuery(dataQuery, hash);
                                     });
                             } else {
+                                //If cache is used, change 'me' to the ID of the logged in user (only for currentUser() requests).
+                                if (dataQuery.operation === DataQuery.operations.ReadById && dataQuery.additionalOptions.id === 'me') {
+                                    dataQuery.additionalOptions.id = self._everlive.setup.principalId;
+                                }
+
                                 return self._everlive.offlineStorage.processQuery(dataQuery)
                                     .then(function (result) {
                                         dataQuery.onSuccess(result);
@@ -17623,7 +17014,7 @@ CacheModule.prototype = {
                     var cacheForItems = [];
                     var result = response.result;
 
-                    if (dataQuery.operation !== DataQuery.operations.count) {
+                    if (dataQuery.operation !== DataQuery.operations.Count) {
                         if (Array.isArray(result)) {
                             _.each(result, function (singleResult) {
                                 var cacheItemPromise = self._addObjectToCache(singleResult, dataQuery.collectionName);
@@ -17637,7 +17028,7 @@ CacheModule.prototype = {
 
                     return rsvp.all(cacheForItems)
                         .then(function () {
-                            if (dataQuery.operation !== DataQuery.operations.count) {
+                            if (dataQuery.operation !== DataQuery.operations.Count) {
                                 return self._cacheResultFromDataQuery(contentType, hash);
                             }
                         })
@@ -17672,7 +17063,14 @@ CacheModule.prototype = {
         return this._getExpirationForHash(contentType, hash)
             .then(function (cachedAt) {
                 var maxAgeForContentType = self.typeSettings && self.typeSettings[contentType] ? self.typeSettings[contentType].maxAge * 60 * 1000 : null;
-                var cacheAge = maxAge || maxAgeForContentType || self.maxAgeInMs;
+                var cacheAge;
+                if (maxAge || maxAge === 0) {
+                    cacheAge = maxAge;
+                } else if (maxAgeForContentType || maxAgeForContentType === 0) {
+                    cacheAge = maxAgeForContentType;
+                } else {
+                    cacheAge = self.maxAgeInMs;
+                }
                 return (cachedAt + cacheAge) < Date.now();
             });
     },
@@ -17685,7 +17083,7 @@ CacheModule.prototype = {
     },
 
     _getHashForQuery: function (dataQuery) {
-        if (dataQuery.operation === DataQuery.operations.readById) {
+        if (dataQuery.operation === DataQuery.operations.ReadById) {
             return dataQuery.additionalOptions.id;
         }
 
@@ -17693,6 +17091,23 @@ CacheModule.prototype = {
         return this._hash(queryParams);
     },
 
+    /**
+     * Clears the cached data for a specified content type.
+     * @method clear
+     * @name clear
+     * @param {string} contentType The content type to clear.
+     * @memberOf CacheModule.prototype
+     * @returns {Promise}
+     */
+    /**
+     * Clears the cached data for a specified content type.
+     * @method clear
+     * @name clear
+     * @param {string} contentType The content type to clear.
+     * @memberOf CacheModule.prototype
+     * @param {function} [success] A success callback.
+     * @param {function} [error] An error callback.
+     */
     clear: function (contentType, success, error) {
         var self = this;
 
@@ -17708,6 +17123,21 @@ CacheModule.prototype = {
         }, success, error);
     },
 
+    /**
+     * Clears all data from the cache.
+     * @method clearAll
+     * @name clearAll
+     * @memberOf CacheModule.prototype
+     * @returns {Promise}
+     */
+    /**
+     * Clears all data from the cache.
+     * @method clearAll
+     * @name clearAll
+     * @memberOf CacheModule.prototype
+     * @param {function} [success] A success callback.
+     * @param {function} [error] An error callback.
+     */
     clearAll: function (success, error) {
         var self = this;
         self.cacheData = null;
@@ -17725,7 +17155,7 @@ CacheModule.prototype = {
 };
 
 module.exports = CacheModule;
-},{"../EverliveError":47,"../common":58,"../constants":59,"../offline/offline":76,"../offline/offlinePersisters":77,"../query/DataQuery":85,"../query/Query":86,"../utils":99,"underscore":35}],57:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"../offline/offline":77,"../offline/offlinePersisters":78,"../query/DataQuery":87,"../query/Query":89,"../utils":102,"underscore":35}],58:[function(require,module,exports){
 'use strict';
 
 var CacheModule = require('./CacheModule');
@@ -17762,7 +17192,7 @@ module.exports = {
         this.cache._initStore(options);
     }
 };
-},{"../common":58,"./CacheModule":56}],58:[function(require,module,exports){
+},{"../common":59,"./CacheModule":57}],59:[function(require,module,exports){
 (function (global){
 module.exports = (function () {
     var common = {};
@@ -17822,6 +17252,9 @@ module.exports = (function () {
     dependencyStore.Processor = require('../scripts/bs-expand-processor');
     exportDependency('Processor');
 
+    dependencyStore.AggregationTranslator = require('../scripts/bs-aggregation-translator');
+    exportDependency('AggregationTranslator');
+
     dependencyStore.rsvp = require('rsvp');
     exportDependency('RSVP', 'rsvp');
 
@@ -17834,10 +17267,9 @@ module.exports = (function () {
 }());
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 
-},{"../scripts/bs-expand-processor":39,"./everlive.platform":61,"./reqwest.nativescript":90,"./reqwest.nodejs":91,"json-stable-stringify":7,"jstimezonedetect":11,"mingo":12,"mongo-query":14,"reqwest":33,"rsvp":34,"underscore":35}],59:[function(require,module,exports){
+},{"../scripts/bs-aggregation-translator":36,"../scripts/bs-expand-processor":40,"./everlive.platform":62,"./reqwest.nativescript":93,"./reqwest.nodejs":94,"json-stable-stringify":7,"jstimezonedetect":11,"mingo":12,"mongo-query":14,"reqwest":33,"rsvp":34,"underscore":35}],60:[function(require,module,exports){
 /**
- * Constants used by the SDK
- * @typedef {Object} Everlive.Constants
+ * Constants used by the SDK* @typedef {Object} Everlive.Constants
  */
 
 var constants = {
@@ -17890,19 +17322,21 @@ var constants = {
 
     // The headers used by the Everlive services
     Headers: {
-        filter: 'X-Everlive-Filter',
-        select: 'X-Everlive-Fields',
-        sort: 'X-Everlive-Sort',
-        skip: 'X-Everlive-Skip',
-        take: 'X-Everlive-Take',
-        expand: 'X-Everlive-Expand',
-        singleField: 'X-Everlive-Single-Field',
-        includeCount: 'X-Everlive-Include-Count',
-        powerFields: 'X-Everlive-Power-Fields',
-        debug: 'X-Everlive-Debug',
-        overrideSystemFields: 'X-Everlive-Override-System-Fields',
-        sdk: 'X-Everlive-Sdk',
-        sync: 'X-Everlive-Sync'
+        filter: 'x-everlive-filter',
+        select: 'x-everlive-fields',
+        sort: 'x-everlive-sort',
+        skip: 'x-everlive-skip',
+        take: 'x-everlive-take',
+        expand: 'x-everlive-expand',
+        singleField: 'x-everlive-single-field',
+        includeCount: 'x-everlive-include-count',
+        powerFields: 'x-everlive-power-fields',
+        debug: 'x-everlive-debug',
+        overrideSystemFields: 'x-everlive-override-system-fields',
+        sdk: 'x-everlive-sdk',
+        sync: 'x-everlive-sync',
+        aggregate: 'x-everlive-aggregate',
+        customParameters: 'x-everlive-custom-parameters'
     },
     //Constants for different platforms in Everlive
     Platform: {
@@ -18027,9 +17461,59 @@ constants.FilesTypeName = 'Files';
 
 constants.MaxConcurrentDownloadTasks = 3;
 
+constants.DefaultFilesystemStorageQuota = 10485760;
+constants.Events = {
+    SyncStart: 'syncStart',
+    SyncEnd: 'syncEnd',
+    Processed: 'processed',
+    ItemProcessed: 'itemProcessed',
+    BeforeExecute: 'beforeExecute'
+};
+
+constants.DataQueryOperations = {
+    Read: 'read',
+    Create: 'create',
+    Update: 'update',
+    Delete: 'destroy',
+    DeleteById: 'destroySingle',
+    ReadById: 'readById',
+    Count: 'count',
+    RawUpdate: 'rawUpdate',
+    SetAcl: 'setAcl',
+    SetOwner: 'setOwner',
+    UpdateById: 'updateSingle', // used only by the event query
+    UserLogin: 'login',
+    UserLogout: 'logout',
+    UserChangePassword: 'changePassword',
+    UserLoginWithProvider: 'loginWith',
+    UserLinkWithProvider: 'linkWith',
+    UserUnlinkFromProvider: 'unlinkFrom',
+    UserResetPassword: 'resetPassword',
+    UserSetPassword: 'setPassword',
+    FilesUpdateContent: 'updateContent',
+    FilesGetDownloadUrlById: 'downloadUrlById',
+    Aggregate: 'aggregate'
+};
+
+constants.Aggregation = {
+    MaxDocumentsCount: 100000
+};
+
+constants.Push = {
+    NotificationsType: 'Push/Notifications',
+    DevicesType: 'Push/Devices'
+};
+
+constants.EncodableHeaders = [
+    constants.Headers.filter,
+    constants.Headers.expand,
+    constants.Headers.powerFields,
+    constants.Headers.customParameters
+];
+
 module.exports = constants;
 
-},{}],60:[function(require,module,exports){
+},{}],61:[function(require,module,exports){
 var CryptoJS = require('node-cryptojs-aes').CryptoJS;
 var AES = CryptoJS.AES;
 
@@ -18067,8 +17551,7 @@ module.exports = (function () {
 
     return CryptographicProvider;
 }());
-},{"node-cryptojs-aes":25}],61:[function(require,module,exports){
-(function (global){
+},{"node-cryptojs-aes":25}],62:[function(require,module,exports){
 var isNativeScript = Boolean(((typeof android !== 'undefined' && android && android.widget && android.widget.Button)
 || (typeof UIButton !== 'undefined' && UIButton)));
 
@@ -18077,15 +17560,7 @@ var isCordova = false;
 var isWindowsPhone = false;
 var isAndroid = false;
 
-if (isNativeScript) {
-    global.window = {
-        localStorage: {
-            removeItem: function () {
-            } //shim for mongo-query under nativescript
-        }
-    };
-
-} else if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && !isNativeScript) {
     isCordova = /^file:\/{3}[^\/]|x-wmapp/i.test(window.location.href) && /ios|iphone|ipod|ipad|android|iemobile/i.test(navigator.userAgent);
     isWindowsPhone = isCordova && /iemobile/i.test(navigator.userAgent);
     isAndroid = isCordova && cordova.platformId === 'android';
@@ -18105,6 +17580,10 @@ if (isNativeScript) {
     platform = 'cordova';
 }
 
+var isInAppBuilderSimulator = function () {
+    return typeof window !== undefined && window.navigator && window.navigator.simulator;
+};
+
 module.exports = {
     isCordova: isCordova,
     isNativeScript: isNativeScript,
@@ -18113,11 +17592,10 @@ module.exports = {
     isAndroid: isAndroid,
     isNodejs: isNodejs,
     isRequirejs: isRequirejs,
-    platform: platform
+    platform: platform,
+    isInAppBuilderSimulator: isInAppBuilderSimulator
 };
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-
-},{}],62:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 'use strict';
 
 /**
@@ -18139,7 +17617,7 @@ if (platform.isCordova || platform.isDesktop) {
 }
 
 module.exports = helpers;
-},{"../everlive.platform":61,"./html/htmlHelper":63}],63:[function(require,module,exports){
+},{"../everlive.platform":62,"./html/htmlHelper":64}],64:[function(require,module,exports){
 'use strict';
 
 var platform = require('../../everlive.platform');
@@ -18180,7 +17658,7 @@ module.exports = (function () {
 
         this._everlive = everlive;
         this._settings = {
-            urlTemplate: '[protocol][hostname][apikey]/[operations][url]',
+            urlTemplate: '[protocol][hostname][appid]/[operations][url]',
             server: 'bs1.cdn.telerik.com/image/v1/'
         };
 
@@ -18208,7 +17686,7 @@ module.exports = (function () {
         },
 
         _triggerOnProcessed: function _triggerOnProcessed(args) {
-            this._emitter.emit('processed', args);
+            this._emitter.emit(constants.Events.Processed, args);
         },
 
         _defaultProcessSettings: function _defaultProcessSettings(settings) {
@@ -18525,7 +18003,7 @@ module.exports = (function () {
     return HtmlHelper;
 }());
 
-},{"../../EventEmitterProxy":45,"../../EverliveError":47,"../../common":58,"../../constants":59,"../../everlive.platform":61,"../../utils":99,"./htmlHelperOfflineModule":64,"./htmlHelperResponsiveModule":65}],64:[function(require,module,exports){
+},{"../../EventEmitterProxy":46,"../../EverliveError":48,"../../common":59,"../../constants":60,"../../everlive.platform":62,"../../utils":102,"./htmlHelperOfflineModule":65,"./htmlHelperResponsiveModule":66}],65:[function(require,module,exports){
 'use strict';
 
 var utils = require('../../utils');
@@ -18583,7 +18061,7 @@ module.exports = (function () {
 
     return HtmlHelperOfflineModule;
 }());
-},{"../../EverliveError":47,"../../common":58,"../../constants":59,"../../utils":99,"path":3}],65:[function(require,module,exports){
+},{"../../EverliveError":48,"../../common":59,"../../constants":60,"../../utils":102,"path":3}],66:[function(require,module,exports){
 'use strict';
 
 var common = require('../../common');
@@ -18639,9 +18117,9 @@ module.exports = (function () {
             var imgUrl = src.replace(/.*?resize=[^//]*\//gi, '');
             var protocolRe = new RegExp('https?://', 'gi');
             var serverRe = new RegExp(this.htmlHelper._settings.server, 'gi');
-            var apiKeyRe = new RegExp(this.htmlHelper._everlive.apiKey + '/', 'gi');
+            var apiIdRe = new RegExp(this.htmlHelper._everlive.appId + '/', 'gi');
 
-            operations = src.replace(imgUrl, '').replace(protocolRe, '').replace(serverRe, '').replace(apiKeyRe, '').toLowerCase();
+            operations = src.replace(imgUrl, '').replace(protocolRe, '').replace(serverRe, '').replace(apiIdRe, '').toLowerCase();
             if (operations !== '') {
                 operations = operations.indexOf('/') ? operations.substring(0, operations.length - 1) : operations;
             } else {
@@ -18743,7 +18221,7 @@ module.exports = (function () {
 
         getImgSrc: function getImgSrc(image, imgWidth) {
             var protocol = this.htmlHelper._everlive.setup.scheme + '://';
-            var apiKey = this.htmlHelper._everlive.setup.apiKey;
+            var appId = this.htmlHelper._everlive.setup.appId;
             var server = this.htmlHelper._settings.server;
             var url = this.htmlHelper._settings.urlTemplate;
             var pixelDensity = this.getPixelRatio(image.item);
@@ -18751,7 +18229,7 @@ module.exports = (function () {
             pixelDensity = pixelDensity ? ',pd:' + pixelDensity : '';
 
             url = url.replace('[protocol]', protocol);
-            url = url.replace('[apikey]', apiKey ? apiKey : '');
+            url = url.replace('[appid]', appId ? appId : '');
             url = url.replace('[hostname]', server);
 
             var params = image.operations || false;
@@ -18775,34 +18253,12 @@ module.exports = (function () {
 
     return HtmlHelperResponsiveModule;
 }());
-},{"../../EverliveError":47,"../../common":58,"../../constants":59,"../../utils":99}],66:[function(require,module,exports){
-/*!
- The MIT License (MIT)
- Copyright (c) 2013 Telerik AD
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- THE SOFTWARE.y distributed under the MIT license.
- */
-/*!
- Everlive SDK
- Version 1.5.4
- */
+},{"../../EverliveError":48,"../../common":59,"../../constants":60,"../../utils":102}],67:[function(require,module,exports){
 (function () {
     var Everlive = require('./Everlive');
+    Everlive.version = '1.6.9';
+
     var platform = require('./everlive.platform');
-    var common = require('./common');
 
     if (!platform.isNativeScript && !platform.isNodejs) {
         var kendo = require('./kendo/kendo.everlive');
@@ -18815,6 +18271,7 @@ module.exports = (function () {
     Everlive.Offline = {};
 
     Everlive.Query = require('./query/Query');
+    Everlive.AggregateQuery = require('./query/AggregateQuery');
     Everlive.QueryBuilder = require('./query/QueryBuilder');
     Everlive.GeoPoint = require('./GeoPoint');
     Everlive.Constants = require('./constants');
@@ -18832,14 +18289,25 @@ module.exports = (function () {
 
     module.exports = Everlive;
 }());
-},{"./Everlive":46,"./GeoPoint":50,"./Request":52,"./common":58,"./constants":59,"./everlive.platform":61,"./kendo/kendo.everlive":67,"./offline/offlinePersisters":77,"./query/Query":86,"./query/QueryBuilder":87,"./types/Data":96,"./utils":99}],67:[function(require,module,exports){
+
+},{"./Everlive":47,"./GeoPoint":51,"./Request":53,"./common":59,"./constants":60,"./everlive.platform":62,"./kendo/kendo.everlive":68,"./offline/offlinePersisters":78,"./query/AggregateQuery":86,"./query/Query":89,"./query/QueryBuilder":90,"./types/Data":99,"./utils":102}],68:[function(require,module,exports){
 var QueryBuilder = require('../query/QueryBuilder');
 var Query = require('../query/Query');
+var AggregateQuery = require('../query/AggregateQuery');
 var Request = require('../Request');
 var constants = require('../constants');
-var _ = require('../common')._;
+var common = require('../common');
+var _ = common._;
+var rsvp = common.rsvp;
 var Everlive = require('../Everlive');
 var EverliveError = require('../EverliveError').EverliveError;
+
+var operations = {
+    read: 'read',
+    update: 'update',
+    destroy: 'destroy',
+    create: 'create'
+};
 
 (function () {
     'use strict';
@@ -18852,10 +18320,13 @@ var EverliveError = require('../EverliveError').EverliveError;
     var kendo = window.kendo;
 
     var extend = $.extend;
+    var aggrSeparator = '_';
 
     var everliveTransport = kendo.data.RemoteTransport.extend({
         init: function (options) {
             this.everlive$ = options.dataProvider || Everlive.$;
+
+            this._subscribeToSdkEvents(options);
             if (!this.everlive$) {
                 throw new Error('An instance of the Backend services sdk must be provided.');
             }
@@ -18869,9 +18340,9 @@ var EverliveError = require('../EverliveError').EverliveError;
             this.dataCollection = this.everlive$.data(options.typeName);
             kendo.data.RemoteTransport.fn.init.call(this, options);
         },
-
         read: function (options) {
             var methodOption = this.options['read'];
+            var self = this;
             if (methodOption && methodOption.url) {
                 return kendo.data.RemoteTransport.fn.read.call(this, options);
             }
@@ -18884,12 +18355,15 @@ var EverliveError = require('../EverliveError').EverliveError;
             var id = options.data.Id;
 
             if (id) {
-                this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).getById(id).then(options.success, options.error).catch(options.error);
+                this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).getById(id).then(options.success, options.error);
             } else {
-                this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).get(everliveQuery).then(options.success, options.error).catch(options.error);
+                this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).get(everliveQuery)
+                    .then(function (getResult) {
+                        return self._readServAggregates(getResult, query, options, methodHeaders);
+                    })
+                    .then(options.success).catch(options.error);
             }
         },
-
         update: function (options) {
             var methodOption = this.options['update'];
             if (methodOption && methodOption.url) {
@@ -18908,7 +18382,6 @@ var EverliveError = require('../EverliveError').EverliveError;
                     .then(options.success.bind(this, itemForUpdate), options.error).catch(options.error);
             }
         },
-
         create: function (options) {
             var methodOption = this.options['create'];
             if (methodOption && methodOption.url) {
@@ -18924,7 +18397,6 @@ var EverliveError = require('../EverliveError').EverliveError;
             return this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).create(createData)
                 .then(options.success.bind(this, createData), options.error).catch(options.error);
         },
-
         destroy: function (options) {
             var methodOption = this.options['destroy'];
             if (methodOption && methodOption.url) {
@@ -18938,8 +18410,41 @@ var EverliveError = require('../EverliveError').EverliveError;
             if (isMultiple) {
                 throw new Error('Batch destroy is not supported.');
             }
-            return this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).destroy(options.data)
+
+            var removeFilter = {
+                Id: options.data.Id
+            };
+
+            return this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).destroySingle(removeFilter)
                 .then(options.success, options.error).catch(options.error);
+        },
+        _subscribeToSdkEvents: function (options) {
+            var self = this;
+
+            _.map(operations, function (op) {
+                if (options && options[op] && typeof options[op].beforeSend === 'function') {
+                    var listener = options[op].beforeSend;
+                    self.everlive$.on(Everlive.Constants.Events.BeforeExecute, listener);
+                }
+            });
+        },
+        _readServAggregates: function (result, query, options, methodHeaders) {
+            if (options.data.aggregate) {
+                if (!options.data.hasOwnProperty('filter') && !query.$where) {
+                    throw new Error("The serverFiltering option must be enabled, when using serverAggregates.");
+                }
+                var aggregateQuery = new AggregateQuery(query.$where, null, query.$sort, query.$skip, query.$take);
+                _transformAggregatesKendoToEverlive(options.data.aggregate, aggregateQuery);
+                return this.dataCollection.withHeaders(this.headers).withHeaders(methodHeaders).aggregate(aggregateQuery)
+                    .then(function (data) {  // merge aggregation into the result
+                        var aggrResult = _transformAggregatesEverliveToKendo(options.data.aggregate, data.result[0]); // only 1 result is expected from server for aggregates, as KendoAggregates are actually totals
+                        $.extend(true, result, {aggregates: aggrResult});
+                        return result;
+                    })
+                    .catch(options.error);
+            } else {
+                return result;
+            }
         }
     });
 
@@ -18958,7 +18463,8 @@ var EverliveError = require('../EverliveError').EverliveError;
                 },
                 model: {
                     id: constants.idField
-                }
+                },
+                aggregates: 'aggregates'
             }
         }
     });
@@ -18987,8 +18493,7 @@ var EverliveError = require('../EverliveError').EverliveError;
                 delete data.sort;
             }
             if (data.filter) {
-                var filter = filterBuilder.build(data.filter);
-                result.$where = filter;
+                result.$where = filterBuilder.build(data.filter);
                 delete data.filter;
             }
         }
@@ -19061,9 +18566,9 @@ var EverliveError = require('../EverliveError').EverliveError;
                     return new RegExp("^" + pattern, "i");
                 case 'endsWith':
                 case 'endswith':
-                    return new RegExp(pattern + "$", "i");
+                    return new RegExp(pattern + '$', 'i');
             }
-            throw new Error("Unknown operator type.");
+            throw new Error('Unknown operator type.');
         },
         _getRegexValue: function (regex) {
             return QueryBuilder.prototype._getRegexValue.call(this, regex);
@@ -19072,16 +18577,13 @@ var EverliveError = require('../EverliveError').EverliveError;
             return filter.logic === 'and';
         },
         _and: function (filter) {
-            var i, l, term, result = {};
+            var i, l, term, result = { $and: []};
             var operands = filter.filters;
             for (i = 0, l = operands.length; i < l; i++) {
                 term = filterBuilder._build(operands[i]);
-                result = filterBuilder._andAppend(result, term);
+                result.$and.push(term);
             }
             return result;
-        },
-        _andAppend: function (andObj, newObj) {
-            return QueryBuilder.prototype._andAppend.call(this, andObj, newObj);
         },
         _isOr: function (filter) {
             return filter.logic === 'or';
@@ -19100,17 +18602,17 @@ var EverliveError = require('../EverliveError').EverliveError;
                 case 'eq':
                     return null;
                 case 'neq':
-                    return "$ne";
+                    return '$ne';
                 case 'gt':
-                    return "$gt";
+                    return '$gt';
                 case 'lt':
-                    return "$lt";
+                    return '$lt';
                 case 'gte':
-                    return "$gte";
+                    return '$gte';
                 case 'lte':
-                    return "$lte";
+                    return '$lte';
             }
-            throw new Error("Unknown operator type.");
+            throw new Error('Unknown operator type.');
         }
     };
 
@@ -19123,25 +18625,15 @@ var EverliveError = require('../EverliveError').EverliveError;
      * @returns {DataSource} A new instance of Kendo UI DataSource. See the Kendo UI documentation for [DataSource](http://docs.telerik.com/kendo-ui/api/javascript/data/datasource) for more information.
      * @example ```js
      * var booksDataSource = Everlive.createDataSource({
-     *   transport: {
-     *     typeName: 'Books'
-     *   }
-     * });
+         *   transport: {
+         *     typeName: 'Books'
+         *   }
+         * });
      * ```
      */
     var createDataSource = function (options) {
         options = options || {};
-        var typeName = options.typeName;
-        var everlive$ = options.dataProvider || Everlive.$;
-        if (!everlive$) {
-            throw new Error("You need to instantiate an Everlive instance in order to create a Kendo UI DataSource.");
-        }
-
-        if (!typeName) {
-            throw new Error("You need to specify a 'typeName' in order to create a Kendo UI DataSource.");
-        }
-
-        return everlive$.getKendoDataSource(typeName, options);
+        return everlive$.getKendoDataSource(options.typeName, options);
     };
 
     /**
@@ -19164,14 +18656,14 @@ var EverliveError = require('../EverliveError').EverliveError;
      * @example ```js
      * var el = new Everlive('your-api-key-here');
      * var continents = Everlive.createHierarchicalDataSource({
-     *   "typeName": "Continents",
-     *   "expand": ["Countries", "Towns"]
+     *   'typeName': 'Continents',
+     *   'expand': ['Countries', 'Towns']
      * });
      *
      * ...
-     * ("#treeview").kendoTreeView({
+     * ('#treeview').kendoTreeView({
      *   dataSource: continents,
-     *   dataTextField: ["ContinentName", "CountryName", "TownName"]
+     *   dataTextField: ['ContinentName', 'CountryName', 'TownName']
      * });
      * ```
      */
@@ -19179,7 +18671,7 @@ var EverliveError = require('../EverliveError').EverliveError;
         var typeName = options.typeName;
         var everlive$ = options.dataProvider || Everlive.$;
         if (!everlive$) {
-            throw new Error("You need to instantiate an Everlive instance in order to create a Kendo UI DataSource.");
+            throw new Error('You need to instantiate an Everlive instance in order to create a Kendo UI DataSource.');
         }
         if (!typeName) {
             throw new Error("You need to specify a 'typeName' in order to create a Kendo UI DataSource.");
@@ -19193,13 +18685,23 @@ var EverliveError = require('../EverliveError').EverliveError;
      * @method getKendoDataSource
      * @memberOf Everlive.prototype
      * @param {String} typeName The corresponding type name for the DataSource.
-     * @param {Object} [datasourceOptions] Additional DataSource options.
+     * @param {Object} [options] Additional DataSource options.
      * @returns {DataSource}
      */
-    Everlive.prototype.getKendoDataSource = function (typeName, datasourceOptions) {
-        datasourceOptions = _.extend({}, datasourceOptions);
-        if (datasourceOptions.hasOwnProperty('serverGrouping') && datasourceOptions.serverGrouping === true) {
-            throw new EverliveError('Server Grouping is not supported.');
+    Everlive.prototype.getKendoDataSource = function (typeName, options) {
+        options = options || {};
+        var everlive$ = options.dataProvider || Everlive.$;
+        if (!everlive$) {
+            throw new Error('You need to instantiate an Everlive instance in order to create a Kendo UI DataSource.');
+        }
+        if (!typeName) {
+            throw new Error("You need to specify a 'typeName' in order to create a Kendo UI DataSource.");
+        }
+        if (options.serverGrouping) {
+            throw new Error("serverGrouping is not supported.");
+        }
+        if (options.serverAggregates && !options.serverFiltering) {
+            throw new Error("The serverFiltering option must be enabled, when using serverAggregates.");
         }
 
         var defaultEverliveOptions = {
@@ -19210,54 +18712,8 @@ var EverliveError = require('../EverliveError').EverliveError;
             }
         };
 
-        var options = _.defaults(defaultEverliveOptions, datasourceOptions);
+        var options = _.defaults(defaultEverliveOptions, options);
         return new kendo.data.DataSource(options);
-    };
-
-
-    var getUrlGeneratorForNode = function (baseUrl, expandArray) {
-        var expandField = getRelationFieldForExpandNode(expandArray[expandArray.length - 1]);
-        var pathArray = expandArray.slice(0, expandArray.length - 1);
-        var pathUrl = '/_expand';
-        for (var i = 0; i < pathArray.length; i++) {
-            pathUrl += '/' + getRelationFieldForExpandNode(pathArray[i]);
-        }
-        return (function (pathUrl, expandField) {
-            return function (options) {
-                var url = baseUrl + '';
-                if (options.Id && expandField) {//if we are expanding
-                    url += pathUrl + '/' + options.Id + '/' + expandField;
-                }
-                return url;
-            }
-        }(pathUrl, expandField));
-    };
-
-    var getHeadersForExpandNode = function (expandNode) {
-        if (typeof expandNode === "string") {
-            return {};
-        } else {
-            return {
-                'X-Everlive-Filter': JSON.stringify(expandNode.filter),
-                'X-Everlive-Sort': JSON.stringify(expandNode.sort),
-                'X-Everlive-Single-Field': expandNode.singleField,
-                'X-Everlive-Skip': expandNode.skip,
-                'X-Everlive-Take': expandNode.take,
-                'X-Everlive-Fields': JSON.stringify(expandNode.fields)
-            }
-        }
-    };
-
-    var getRelationFieldForExpandNode = function (expandNode) {
-        if (typeof expandNode === "string") {
-            return expandNode;
-        } else {
-            if (expandNode.relation) {
-                return expandNode.relation;
-            } else {
-                throw new Error("You need to specify a 'relation' for an expand node when using the object notation");
-            }
-        }
     };
 
     /**
@@ -19270,9 +18726,6 @@ var EverliveError = require('../EverliveError').EverliveError;
      */
     Everlive.prototype.getHierarchicalDataSource = function (typeName, dataSourceOptions) {
         dataSourceOptions = dataSourceOptions || {};
-        if (dataSourceOptions.hasOwnProperty('serverGrouping') && dataSourceOptions.serverGrouping === true) {
-            throw new EverliveError('Server Grouping is not supported.');
-        }
         var expand = dataSourceOptions.expand || dataSourceOptions;
         delete dataSourceOptions.expand;
         if (!typeName) {
@@ -19289,13 +18742,13 @@ var EverliveError = require('../EverliveError').EverliveError;
             var expandNode = expand[i];
             if (isOfflineStorageEnabled) {
                 if (!$.isPlainObject(expandNode)) {
-                    throw new Error("When offline is enabled, each member of the expand array option must be an object. (Expand node index: " + i + ")");
+                    throw new Error('When offline is enabled, each member of the expand array option must be an object. (Expand node index: ' + i + ')');
                 }
                 if (!expandNode.relation) {
-                    throw new Error("When offline is enabled, each member of the expand array option must have a `relation` option set.  (Expand node index: " + i + ")");
+                    throw new Error('When offline is enabled, each member of the expand array option must have a `relation` option set.  (Expand node index: ' + i + ')');
                 }
                 if (!expandNode.typeName) {
-                    throw new Error("When offline is enabled, each member of the expand array option must have a `typeName` option set.  (Expand node index: " + i + ")");
+                    throw new Error('When offline is enabled, each member of the expand array option must have a `typeName` option set.  (Expand node index: ' + i + ')');
                 }
 
                 var headers;
@@ -19323,7 +18776,7 @@ var EverliveError = require('../EverliveError').EverliveError;
                     model: {
                         hasChildren: expandNode.relation,
                         children: {
-                            type: "everlive",
+                            type: 'everlive',
                             transport: {
                                 typeName: parentType,
                                 read: {
@@ -19339,7 +18792,7 @@ var EverliveError = require('../EverliveError').EverliveError;
                     model: {
                         hasChildren: getRelationFieldForExpandNode(expandNode),
                         children: {
-                            type: "everlive",
+                            type: 'everlive',
                             transport: {
                                 read: {
                                     url: getUrlGeneratorForNode(baseUrl, expand.slice(0, i + 1)),
@@ -19365,23 +18818,91 @@ var EverliveError = require('../EverliveError').EverliveError;
         return new kendo.data.HierarchicalDataSource(options);
     };
 
+    var getUrlGeneratorForNode = function (baseUrl, expandArray) {
+        var expandField = getRelationFieldForExpandNode(expandArray[expandArray.length - 1]);
+        var pathArray = expandArray.slice(0, expandArray.length - 1);
+        var pathUrl = '/_expand';
+        for (var i = 0; i < pathArray.length; i++) {
+            pathUrl += '/' + getRelationFieldForExpandNode(pathArray[i]);
+        }
+        return (function (pathUrl, expandField) {
+            return function (options) {
+                var url = baseUrl + '';
+                if (options.Id && expandField) {//if we are expanding
+                    url += pathUrl + '/' + options.Id + '/' + expandField;
+                }
+                return url;
+            }
+        }(pathUrl, expandField));
+    };
+
+    var getHeadersForExpandNode = function (expandNode) {
+        if (typeof expandNode === 'string') {
+            return {};
+        } else {
+            return {
+                'X-Everlive-Filter': JSON.stringify(expandNode.filter),
+                'X-Everlive-Sort': JSON.stringify(expandNode.sort),
+                'X-Everlive-Single-Field': expandNode.singleField,
+                'X-Everlive-Skip': expandNode.skip,
+                'X-Everlive-Take': expandNode.take,
+                'X-Everlive-Fields': JSON.stringify(expandNode.fields)
+            }
+        }
+    };
+
+    var getRelationFieldForExpandNode = function (expandNode) {
+        if (typeof expandNode === 'string') {
+            return expandNode;
+        } else {
+            if (expandNode.relation) {
+                return expandNode.relation;
+            } else {
+                throw new Error("You need to specify a 'relation' for an expand node when using the object notation");
+            }
+        }
+    };
+
+    /** * passes Kendo-format aggregations to JS SDK */
+    var _transformAggregatesKendoToEverlive = function (kendoAggregates, aggregateQuery) {
+        _.each(kendoAggregates, function (element) {
+            if (element.aggregate === 'count'){
+                aggregateQuery[element.aggregate](element.aggregate + aggrSeparator + element.field);
+            } else {
+                aggregateQuery[element.aggregate](element.field, element.aggregate + aggrSeparator + element.field);
+            }
+        });
+    };
+
+    /** * reformat server-response aggregations from Everlive API format to Kendo*/
+    var _transformAggregatesEverliveToKendo = function (kendoAggregates, data) {
+        var aggrData = {};
+        _.each(kendoAggregates, function (element) {
+            if (!aggrData[element.field]) {
+                aggrData[element.field] = {};
+            }
+            aggrData[element.field][element.aggregate] = data[element.aggregate + aggrSeparator + element.field];
+        });
+        return _.isEmpty(aggrData) ? null : aggrData;
+    };
 
     module.exports = {
         createDataSource: createDataSource,
         createHierarchicalDataSource: createHierarchicalDataSource
     };
 }());
-},{"../Everlive":46,"../EverliveError":47,"../Request":52,"../common":58,"../constants":59,"../query/Query":86,"../query/QueryBuilder":87}],68:[function(require,module,exports){
+
+},{"../Everlive":47,"../EverliveError":48,"../Request":53,"../common":59,"../constants":60,"../query/AggregateQuery":86,"../query/Query":89,"../query/QueryBuilder":90}],69:[function(require,module,exports){
 var _ = require('../common')._;
 
-var deepExtend = require('./underscoreDeepExtends');
+var deepExtend = require('./underscoreDeepExtend');
 var compactObject = require('./underscoreCompactObject');
 var isObjectEmpty = require('./underscoreIsObjectEmpty');
 
 _.mixin({'deepExtend': deepExtend});
 _.mixin({'compactObject': compactObject});
 _.mixin({'isEmptyObject': isObjectEmpty});
-},{"../common":58,"./underscoreCompactObject":69,"./underscoreDeepExtends":70,"./underscoreIsObjectEmpty":71}],69:[function(require,module,exports){
+},{"../common":59,"./underscoreCompactObject":70,"./underscoreDeepExtend":71,"./underscoreIsObjectEmpty":72}],70:[function(require,module,exports){
 var _ = require('underscore');
 
 //http://stackoverflow.com/questions/14058193/remove-empty-properties-falsy-values-from-object-with-underscore-js
@@ -19396,7 +18917,7 @@ module.exports = function compactObject(o) {
     return newObject;
 };
 
-},{"underscore":35}],70:[function(require,module,exports){
+},{"underscore":35}],71:[function(require,module,exports){
 /*  Copyright (C) 2012-2014  Kurt Milam - http://xioup.com | Source: https://gist.github.com/1868955
  *   
  *  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -19498,7 +19019,7 @@ module.exports = function deepExtend(obj) {
  *   output: [1, 3, 4]
  *
  **/
-},{"../common":58}],71:[function(require,module,exports){
+},{"../common":59}],72:[function(require,module,exports){
 // http://stackoverflow.com/questions/4994201/is-object-empty
 'use strict';
 
@@ -19525,7 +19046,7 @@ function isEmpty(obj) {
 }
 
 module.exports = isEmpty;
-},{}],72:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -19975,7 +19496,7 @@ OfflineFilesModule.prototype = {
 };
 
 module.exports = OfflineFilesModule;
-},{"../AutoQueue":44,"../EverliveError":47,"../Request":52,"../common":58,"../utils":99,"node-cryptojs-aes":25,"path":3}],73:[function(require,module,exports){
+},{"../AutoQueue":45,"../EverliveError":48,"../Request":53,"../common":59,"../utils":102,"node-cryptojs-aes":25,"path":3}],74:[function(require,module,exports){
 'use strict';
 
 var EverliveErrorModule = require('../EverliveError');
@@ -20047,6 +19568,12 @@ OfflineFilesProcessor.prototype = {
     },
 
     upsertFileFromObject: function (obj, isCreate, isSync) {
+        //TODO: make separate offline files processors when we start supporting nativescript
+        if (platform.isDesktop || platform.isNativeScript) {
+            //we will not support files in desktop and nativescript, only their metadata
+            return utils.successfulPromise();
+        }
+
         var self = this;
 
         if (!isSync) {
@@ -20186,7 +19713,7 @@ OfflineFilesProcessor.prototype = {
 };
 
 module.exports = OfflineFilesProcessor;
-},{"../EverliveError":47,"../common":58,"../constants":59,"../everlive.platform":61,"../storages/FileStore":92,"../utils":99,"path":3}],74:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"../everlive.platform":62,"../storages/FileStore":95,"../utils":102,"path":3}],75:[function(require,module,exports){
 'use strict';
 
 var DataQuery = require('../query/DataQuery');
@@ -20205,6 +19732,7 @@ var _ = common._;
 var rsvp = common.rsvp;
 var mingo = common.Mingo;
 var mongoQuery = common.mongoQuery;
+var aggregationTranslator = common.AggregationTranslator;
 var Query = require('../query/Query');
 
 var path = require('path');
@@ -20216,26 +19744,26 @@ var offlineItemStates = constants.offlineItemStates;
 var unsupportedOfflineHeaders = [Headers.powerFields];
 
 var unsupportedUsersOperations = {};
-unsupportedUsersOperations[DataQuery.operations.create] = true;
-unsupportedUsersOperations[DataQuery.operations.update] = true;
-unsupportedUsersOperations[DataQuery.operations.remove] = true;
-unsupportedUsersOperations[DataQuery.operations.removeSingle] = true;
-unsupportedUsersOperations[DataQuery.operations.rawUpdate] = true;
-unsupportedUsersOperations[DataQuery.operations.setAcl] = true;
-unsupportedUsersOperations[DataQuery.operations.setOwner] = true;
-unsupportedUsersOperations[DataQuery.operations.userLoginWithProvider] = true;
-unsupportedUsersOperations[DataQuery.operations.userLinkWithProvider] = true;
-unsupportedUsersOperations[DataQuery.operations.userUnlinkFromProvider] = true;
-unsupportedUsersOperations[DataQuery.operations.userLogin] = true;
-unsupportedUsersOperations[DataQuery.operations.userLogout] = true;
-unsupportedUsersOperations[DataQuery.operations.userChangePassword] = true;
-unsupportedUsersOperations[DataQuery.operations.userResetPassword] = true;
+unsupportedUsersOperations[DataQuery.operations.Create] = true;
+unsupportedUsersOperations[DataQuery.operations.Update] = true;
+unsupportedUsersOperations[DataQuery.operations.Delete] = true;
+unsupportedUsersOperations[DataQuery.operations.DeleteById] = true;
+unsupportedUsersOperations[DataQuery.operations.RawUpdate] = true;
+unsupportedUsersOperations[DataQuery.operations.SetAcl] = true;
+unsupportedUsersOperations[DataQuery.operations.SetOwner] = true;
+unsupportedUsersOperations[DataQuery.operations.UserLoginWithProvider] = true;
+unsupportedUsersOperations[DataQuery.operations.UserLinkWithProvider] = true;
+unsupportedUsersOperations[DataQuery.operations.UserUnlinkFromProvider] = true;
+unsupportedUsersOperations[DataQuery.operations.UserLogin] = true;
+unsupportedUsersOperations[DataQuery.operations.UserLogout] = true;
+unsupportedUsersOperations[DataQuery.operations.UserChangePassword] = true;
+unsupportedUsersOperations[DataQuery.operations.UserResetPassword] = true;
 
 function buildUsersErrorMessage(dataQuery) {
     var unsupportedUserSocialProviderOperations = [
-        DataQuery.operations.userLoginWithProvider,
-        DataQuery.operations.userLinkWithProvider,
-        DataQuery.operations.userUnlinkFromProvider
+        DataQuery.operations.UserLoginWithProvider,
+        DataQuery.operations.UserLinkWithProvider,
+        DataQuery.operations.UserUnlinkFromProvider
     ];
 
     var operation = dataQuery.operation;
@@ -20261,18 +19789,19 @@ function OfflineQueryProcessor(persister, encryptionProvider, offlineFilesProces
 
 OfflineQueryProcessor.prototype = {
     processQuery: function (dataQuery) {
-        if (utils.isContentType.files(dataQuery.collectionName) && platform.isDesktop) {
+        var collectionName = dataQuery.collectionName;
+        if (utils.isContentType.pushDevices(collectionName) || utils.isContentType.pushNotifications(collectionName)) {
             if (this.everlive.isOnline()) {
                 return utils.successfulPromise();
             } else {
-                return utils.rejectedPromise(new EverliveError(EverliveErrors.filesNotSupportedInBrowser));
+                return utils.rejectedPromise(new EverliveError(EverliveErrors.pushNotSupportedOffline));
             }
         }
 
-        var unsupportedClientOpMessage = this.getUnsupportedClientOpMessage(dataQuery);
-        if (unsupportedClientOpMessage && !dataQuery.isSync) {
+        var queryNotSupportedError = this.checkSupportedQuery(dataQuery);
+        if (queryNotSupportedError && !dataQuery.isSync) {
             return new rsvp.Promise(function (resolve, reject) {
-                reject(new EverliveError(unsupportedClientOpMessage));
+                reject(new EverliveError(queryNotSupportedError));
             });
         }
 
@@ -20295,32 +19824,35 @@ OfflineQueryProcessor.prototype = {
         offlineTransformations.traverseAndTransformFilterId(queryParams.filter);
 
         switch (dataQuery.operation) {
-            case DataQuery.operations.read:
+            case DataQuery.operations.Read:
                 return this.read(dataQuery, queryParams.filter, queryParams.sort, queryParams.skip, queryParams.limit, queryParams.select, queryParams.expand);
-            case DataQuery.operations.readById:
+            case DataQuery.operations.ReadById:
                 return this.readById(dataQuery, queryParams.expand);
-            case DataQuery.operations.filesGetDownloadUrlById:
+            case DataQuery.operations.FilesGetDownloadUrlById:
                 return this.getDownloadUrlById(dataQuery);
-            case DataQuery.operations.count:
+            case DataQuery.operations.Count:
                 return this.count(dataQuery, queryParams.filter);
-            case DataQuery.operations.create:
+            case DataQuery.operations.Create:
                 return this.create(dataQuery);
-            case DataQuery.operations.rawUpdate:
-            case DataQuery.operations.update:
+            case DataQuery.operations.RawUpdate:
+            case DataQuery.operations.Update:
                 return this.update(dataQuery, queryParams.filter);
-            case DataQuery.operations.filesUpdateContent:
+            case DataQuery.operations.FilesUpdateContent:
                 return this.updateFileContent(dataQuery, queryParams.filter);
-            case DataQuery.operations.remove:
+            case DataQuery.operations.Delete:
                 return this.remove(dataQuery, queryParams.filter);
-            case DataQuery.operations.removeSingle:
-                queryParams.filter._id = dataQuery.additionalOptions.id;
-                return this.remove(dataQuery, queryParams.filter);
+            case DataQuery.operations.DeleteById:
+                return this.remove(dataQuery, {
+                    _id: dataQuery.additionalOptions.id
+                });
+            case DataQuery.operations.Aggregate:
+                return this.aggregate(dataQuery, queryParams);
             default:
                 return new rsvp.Promise(function (resolve, reject) {
                     if (dataQuery.isSync) {
                         resolve();
                     } else {
-                        reject(new EverliveError(dataQuery.operation + ' is not supported in offline mode'));
+                        reject(new EverliveError(dataQuery.operation + ' is not supported in offline mode.'));
                     }
                 });
         }
@@ -20330,6 +19862,7 @@ OfflineQueryProcessor.prototype = {
         var self = this;
         var id = dataQuery.additionalOptions.id;
         var offlineFilePath;
+        var fileDirectUri;
 
         return self.everlive
             .files
@@ -20338,6 +19871,7 @@ OfflineQueryProcessor.prototype = {
             .getById(id)
             .then(function (res) {
                 var file = res.result;
+                fileDirectUri = file.Uri;
                 return self.everlive.offlineStorage.files._getFileUrlForId(file.Id, file.Filename);
             })
             .then(function (filePath) {
@@ -20345,21 +19879,15 @@ OfflineQueryProcessor.prototype = {
                 return self.everlive.offlineStorage._offlineFilesProcessor.fileStore.getFileByAbsolutePath(filePath);
             })
             .then(function (fileEntry) {
-                if (fileEntry) {
-                    return {
-                        result: {
-                            Uri: offlineFilePath
-                        }
-                    }
-                }
-
                 return {
-                    result: {}
-                }
+                    result: {
+                        Uri: fileEntry ? offlineFilePath : fileDirectUri
+                    }
+                };
             });
     },
 
-    getUnsupportedClientOpMessage: function (dataQuery) {
+    checkSupportedQuery: function (dataQuery) {
         for (var i = 0; i < unsupportedOfflineHeaders.length; i++) {
             var header = unsupportedOfflineHeaders[i];
             if (dataQuery.getHeader(header)) {
@@ -20371,9 +19899,16 @@ OfflineQueryProcessor.prototype = {
             return buildUsersErrorMessage(dataQuery);
         }
 
+        if (utils.isContentType.files(dataQuery.collectionName)) {
+            if ((dataQuery.operation === DataQuery.operations.create && Array.isArray(dataQuery.data)) ||
+                dataQuery.operation === DataQuery.operations.rawUpdate || dataQuery.operation === DataQuery.operations.update) {
+                return EverliveErrors.invalidRequest;
+            }
+        }
+
         var isSingle = dataQuery.additionalOptions && dataQuery.additionalOptions.id;
-        var isUpdateByFilter = dataQuery.operation === DataQuery.operations.update && !isSingle;
-        var isRawUpdate = dataQuery.operation === DataQuery.operations.rawUpdate;
+        var isUpdateByFilter = dataQuery.operation === DataQuery.operations.Update && !isSingle;
+        var isRawUpdate = dataQuery.operation === DataQuery.operations.RawUpdate;
         if (utils.isContentType.files(dataQuery.collectionName) && (isRawUpdate || isUpdateByFilter)) {
             return buildFilesErrorMessage(dataQuery);
         }
@@ -20734,6 +20269,10 @@ OfflineQueryProcessor.prototype = {
     },
 
     updateFileContent: function (dataQuery) {
+        if (platform.isDesktop) {
+            return utils.successfulPromise();
+        }
+        
         var isSync = dataQuery.isSync;
         var updateExpression = dataQuery.data;
         var self = this;
@@ -20781,6 +20320,11 @@ OfflineQueryProcessor.prototype = {
                 if (dataQuery.additionalOptions && dataQuery.additionalOptions.id) {
                     var itemId = dataQuery.additionalOptions.id;
                     var singleItemForUpdate = self._getById(collection, itemId);
+                    if (!singleItemForUpdate) {
+                        throw new EverliveError(EverliveErrors.itemNotFound,
+                            'Item with id :' + itemId + ' does not exist offline in the collection :' + collectionName);
+                    }
+
                     updateItems = [singleItemForUpdate];
 
                     if (utils.isContentType.files(collectionName) && updateExpression.$set && updateExpression.$set.Filename || updateExpression.Filename) {
@@ -20895,28 +20439,29 @@ OfflineQueryProcessor.prototype = {
         var self = this;
 
         return new rsvp.Promise(function (resolve, reject) {
-            if (utils.isContentType.files(collectionName)) {
+            //we cannot remove files while in desktop mode
+            if (utils.isContentType.files(collectionName) && !platform.isDesktop) {
                 return self.everlive.offlineStorage.files.purge(itemToRemove._id).then(resolve, reject);
             } else {
                 return resolve();
             }
         }).then(function () {
-                itemToRemove._id = itemToRemove._id || itemToRemove.Id;
+            itemToRemove._id = itemToRemove._id || itemToRemove.Id;
 
-                var itemExists = !!self._getById(collection, itemToRemove._id.toString());
-                if (!itemExists && !isSync) {
-                    throw new EverliveError('Cannot delete item - item with id ' + itemToRemove._id + ' does not exist.');
-                }
+            var itemExists = !!self._getById(collection, itemToRemove._id.toString());
+            if (!itemExists && !isSync) {
+                throw new EverliveError('Cannot delete item - item with id ' + itemToRemove._id + ' does not exist.');
+            }
 
-                // if the item has existed only offline or the data is syncing
-                // and the item was deleted by the conflict resolution strategy
-                var removeFromMemory = itemToRemove[constants.offlineItemsStateMarker] === offlineItemStates.created || isSync;
-                if (removeFromMemory) {
-                    self._clearItem(collection, itemToRemove);
-                } else {
-                    self._setItem(collection, itemToRemove, offlineItemStates.deleted);
-                }
-            });
+            // if the item has existed only offline or the data is syncing
+            // and the item was deleted by the conflict resolution strategy
+            var removeFromMemory = itemToRemove[constants.offlineItemsStateMarker] === offlineItemStates.created || isSync;
+            if (removeFromMemory) {
+                self._clearItem(collection, itemToRemove);
+            } else {
+                self._setItem(collection, itemToRemove, offlineItemStates.deleted);
+            }
+        });
     },
 
     _removeItems: function (dataQuery, filter, isSync) {
@@ -21012,6 +20557,30 @@ OfflineQueryProcessor.prototype = {
         }
     },
 
+    aggregate: function (dataQuery, queryParams) {
+        var self = this;
+
+        return this._getCollection(dataQuery.collectionName).then(function (collection) {
+            if (!queryParams || !queryParams.aggregate || _.isEmpty(queryParams.aggregate)) {
+                throw new EverliveError('You must specify a valid aggregation definition. Either GroupBy or Aggregate is required.');
+            }
+
+            var aggregationQuery = _.extend({}, queryParams.aggregate);
+            aggregationQuery.Filter = queryParams.filter;
+
+            var translatedPipeline = aggregationTranslator.translate(aggregationQuery, {
+                maxDocumentsCount: constants.Aggregation.MaxDocumentsCount
+            });
+
+            var collectionWithoutDeleted = _.filter(collection, function (item) {
+                return item[constants.offlineItemsStateMarker] !== constants.offlineItemStates.deleted;
+            });
+
+            var result = mingo.aggregate(collectionWithoutDeleted, translatedPipeline);
+            return self._transformOfflineResult(result, null, dataQuery);
+        });
+    },
+
     purgeAll: function (success, error) {
         var self = this;
         this._collectionCache = {};
@@ -21045,7 +20614,7 @@ OfflineQueryProcessor.prototype = {
 };
 
 module.exports = OfflineQueryProcessor;
-},{"../EverliveError":47,"../ExpandProcessor":48,"../common":58,"../constants":59,"../everlive.platform":61,"../query/DataQuery":85,"../query/Query":86,"../utils":99,"./offlineTransformations":78,"path":3}],75:[function(require,module,exports){
+},{"../EverliveError":48,"../ExpandProcessor":49,"../common":59,"../constants":60,"../everlive.platform":62,"../query/DataQuery":87,"../query/Query":89,"../utils":102,"./offlineTransformations":79,"path":3}],76:[function(require,module,exports){
 var DataQuery = require('../query/DataQuery');
 var everliveErrorModule = require('../EverliveError');
 var EverliveError = everliveErrorModule.EverliveError;
@@ -21064,11 +20633,13 @@ var OfflineQueryProcessor = require('./OfflineQueryProcessor');
 var OfflineFilesProcessor = require('./OfflineFilesProcessor');
 var OfflineFilesModule = require('./OfflineFilesModule');
 var path = require('path');
+var Query = require('../query/Query');
 
 var syncLocation = {
     server: 'server',
     client: 'client'
 };
+
 
 /**
  * @class OfflineModule
@@ -21081,7 +20652,7 @@ var syncLocation = {
  * @member {OfflineModule} offlineStorage
  */
 
-module.exports = (function () {
+module.exports = (function() {
     function OfflineModule(everlive, options, persister, encryptionProvider) {
         this._everlive = everlive;
         this.setup = options;
@@ -21093,7 +20664,7 @@ module.exports = (function () {
             this._offlineFilesProcessor, this._everlive, this.setup);
 
         /**
-         * @memberOf Everlive.prototype
+         * @memberOf OfflineModule.prototype
          * @instance
          * @description An instance of the [OfflineFilesModule]{@link OfflineFilesModule} class for working with files in offline mode.
          * @member {OfflineFilesModule} files
@@ -21102,13 +20673,13 @@ module.exports = (function () {
             this._everlive, this.setup.files.maxConcurrentDownloads);
     }
 
-    var getSyncFilterForItem = function (item) {
+    var getSyncFilterForItem = function(item) {
         var filter = getSyncFilterNoModifiedAt(item);
         filter.ModifiedAt = item.ModifiedAt;
         return filter;
     };
 
-    var getSyncFilterNoModifiedAt = function (item) {
+    var getSyncFilterNoModifiedAt = function(item) {
         return {
             Id: item.Id
         }
@@ -21117,7 +20688,7 @@ module.exports = (function () {
 
     OfflineModule.prototype = {
         /**
-         * Removes all data from the offline storage.
+         * Removes all data from the offline storage. If caching is enabled clears the entire cache as well.
          * @method purgeAll
          * @name purgeAll
          * @memberOf OfflineModule.prototype
@@ -21125,18 +20696,19 @@ module.exports = (function () {
          * @param {function} [error] An error callback.
          */
         /**
-         * Removes all data from the offline storage.
+         * Removes all data from the offline storage. If caching is enabled clears the entire cache as well.
          * @method purgeAll
          * @name purgeAll
          * @memberOf OfflineModule.prototype
-         * @returns Promise
+         * @returns {Promise}
          */
-        purgeAll: function (success, error) {
+        purgeAll: function(success, error) {
             return this._queryProcessor.purgeAll(success, error);
         },
 
         /**
-         * Removes all data for a specific content type from the offline storage.
+         * Removes all data for a specific content type from the offline storage. If caching is enabled clears the cache
+         * for the specified content type as well.
          * @method purge
          * @name purge
          * @memberOf OfflineModule.prototype
@@ -21145,35 +20717,36 @@ module.exports = (function () {
          * @param {function} [error] An error callback.
          */
         /**
-         * Removes all data for a specific content type from the offline storage.
+         * Removes all data for a specific content type from the offline storage. If caching is enabled clears the cache
+         * for the specified content type as well.
          * @method purge
          * @name purge
          * @memberOf OfflineModule.prototype
          * @param {string} contentType The content type to purge.
-         * @returns Promise
+         * @returns {Promise}
          */
-        purge: function (contentType, success, error) {
+        purge: function(contentType, success, error) {
             return this._queryProcessor.purge(contentType, success, error);
         },
 
-        processQuery: function (query) {
+        processQuery: function(query) {
             return this._queryProcessor.processQuery(query);
         },
 
-        _setOffline: function (offline) {
+        _setOffline: function(offline) {
             this.setup.offline = offline;
         },
 
-        isOnline: function () {
+        isOnline: function() {
             return !this.setup.offline;
         },
 
-        _prepareSyncData: function (contentTypesForSync) {
+        _prepareSyncData: function(contentTypesForSync) {
             var self = this;
 
             var contentTypesSyncData = {};
             var conflicts = [];
-            _.each(contentTypesForSync, function (contentType, typeName) {
+            _.each(contentTypesForSync, function(contentType, typeName) {
                 var syncItems = offlineTransformations.idTransform(contentType.offlineItemsToSync);
                 var syncData = self._getSyncItemStates(typeName, syncItems, contentType.serverItems);
                 conflicts.push(syncData.conflicts);
@@ -21186,28 +20759,28 @@ module.exports = (function () {
             };
         },
 
-        _resolveConflicts: function (syncData) {
+        _resolveConflicts: function(syncData) {
             var self = this;
             return this._applyResolutionStrategy(syncData.conflicts)
-                .then(function () {
+                .then(function() {
                     return self._mergeResolvedConflicts(syncData.conflicts, syncData.contentTypesSyncData);
                 })
-                .then(function () {
+                .then(function() {
                     return syncData.contentTypesSyncData;
                 });
         },
 
-        isSynchronizing: function () {
+        isSynchronizing: function() {
             return this._isSynchronizing;
         },
 
-        _fireSyncStart: function () {
+        _fireSyncStart: function() {
             var self = this;
 
-            return new rsvp.Promise(function (resolve) {
+            return new rsvp.Promise(function(resolve) {
                 if (!self._isSynchronizing) {
                     self._isSynchronizing = true;
-                    self._everlive._emitter.emit('syncStart');
+                    self._everlive._emitter.emit(constants.Events.SyncStart);
                     resolve();
                 } else {
                     resolve();
@@ -21215,22 +20788,24 @@ module.exports = (function () {
             });
         },
 
-        _fireSyncEnd: function () {
+        _fireSyncEnd: function() {
             this._isSynchronizing = false;
-            this._everlive._emitter.emit('syncEnd', this._syncResultInfo);
+            this._everlive._emitter.emit(constants.Events.SyncEnd, this._syncResultInfo);
             delete this._syncResultInfo;
         },
 
-        _eachSyncItem: function (items, getFilterFunction, contentTypeName, operation) {
+        _eachSyncItem: function(items, getFilterFunction, contentTypeName, operation) {
             var self = this;
 
-            _.each(items, function (item) {
+            _.each(items, function(item) {
                 var itemFilter = getFilterFunction(item.remoteItem);
                 // if we already have an error for this item we do not want to try and sync it again
                 var resultItem = item.resultingItem;
                 var isCustom = item.isCustom;
                 var resolutionType = item.resolutionType;
-                if (_.some(self._syncResultInfo.failedItems[contentTypeName], {itemId: resultItem.Id})) {
+                if (_.some(self._syncResultInfo.failedItems[contentTypeName], {
+                        itemId: resultItem.Id
+                    })) {
                     return;
                 }
 
@@ -21238,22 +20813,22 @@ module.exports = (function () {
             });
         },
 
-        _shouldAutogenerateIdForContentType: function (collectionName) {
+        _shouldAutogenerateIdForContentType: function(collectionName) {
             return this._queryProcessor._shouldAutogenerateIdForContentType(collectionName);
         },
 
-        _addCreatedFileToSyncPromises: function (resultingItemsForCreate, syncPromises, collectionName) {
+        _addCreatedFileToSyncPromises: function(resultingItemsForCreate, syncPromises, collectionName) {
             var self = this;
 
-            _.each(resultingItemsForCreate, function (item) {
+            _.each(resultingItemsForCreate, function(item) {
                 var filesCollection = self._everlive.files;
-                syncPromises[item.Id] = new rsvp.Promise(function (resolve, reject) {
+                syncPromises[item.Id] = new rsvp.Promise(function(resolve, reject) {
                     self.files.getOfflineLocation(item.Id)
-                        .then(function (location) {
+                        .then(function(location) {
                             if (location) {
                                 return self._transferFile(false, item, location);
                             }
-                        }, function (err) {
+                        }, function(err) {
                             reject({
                                 type: offlineItemStates.created,
                                 items: item,
@@ -21262,14 +20837,14 @@ module.exports = (function () {
                                 storage: syncLocation.server
                             });
                         })
-                        .then(function (res) {
+                        .then(function(res) {
                             var mergedWithServerResponseItem = _.extend({}, item, res.result);
                             self._onItemProcessed(mergedWithServerResponseItem, collectionName, syncLocation.server, offlineItemStates.created);
                             return filesCollection
                                 .isSync(true)
                                 .useOffline(true)
                                 .updateSingle(mergedWithServerResponseItem);
-                        }, function (err) {
+                        }, function(err) {
                             reject({
                                 type: offlineItemStates.created,
                                 items: item,
@@ -21278,7 +20853,7 @@ module.exports = (function () {
                                 storage: syncLocation.server
                             });
                         })
-                        .then(resolve, function (err) {
+                        .then(resolve, function(err) {
                             reject({
                                 type: offlineItemStates.modified,
                                 items: item,
@@ -21291,29 +20866,30 @@ module.exports = (function () {
             });
         },
 
-        _transferFile: function (isUpdate, item, location) {
+        _transferFile: function(isUpdate, item, location) {
             var sdk = this._everlive;
 
-            return new rsvp.Promise(function (resolve, reject) {
+            return new rsvp.Promise(function(resolve, reject) {
                 var self = this;
                 var uploadUrl = sdk.files.getUploadUrl();
                 var fileExistsPromise = utils.successfulPromise();
 
                 if (isUpdate) {
-                    fileExistsPromise = new rsvp.Promise(function (resolve) {
+                    fileExistsPromise = new rsvp.Promise(function(resolve) {
                         sdk.files
                             .isSync(true)
                             .applyOffline(false)
                             .getById(item.Id)
-                            .then(function () {
+                            .then(function() {
                                 resolve(true);
-                            }).catch(function () {
+                            })
+                            .catch(function() {
                                 resolve(false);
                             });
                     });
                 }
 
-                fileExistsPromise.then(function (fileExistsOnServer) {
+                fileExistsPromise.then(function(fileExistsOnServer) {
                     var canUpdate = isUpdate && fileExistsOnServer;
                     if (canUpdate) {
                         uploadUrl += '/' + item.Id + '/Content';
@@ -21331,14 +20907,14 @@ module.exports = (function () {
 
                     options.params = {};
 
-                    _.each(item, function (value, key) {
+                    _.each(item, function(value, key) {
                         if (key.toLowerCase() !== 'base64') {
                             var prefixedKey = constants.fileUploadKey + constants.fileUploadDelimiter + key;
                             options.params[prefixedKey] = value;
                         }
                     });
 
-                    fileTransfer.upload(location, uploadUrl, function (result) {
+                    fileTransfer.upload(location, uploadUrl, function(result) {
                         var parsedResult = utils.parseUtilities.parseJSON(result.response);
                         if (parsedResult.Result === false) {
                             reject.apply(self, arguments);
@@ -21354,19 +20930,19 @@ module.exports = (function () {
             });
         },
 
-        _addCreatedObjectToSyncPromises: function (syncPromises, dataCollection, resultingItemsForCreate, contentTypeData, collectionName, ids) {
+        _addCreatedObjectToSyncPromises: function(syncPromises, dataCollection, resultingItemsForCreate, contentTypeData, collectionName, ids) {
             var self = this;
 
-            var promise = new rsvp.Promise(function (resolve, reject) {
+            var promise = new rsvp.Promise(function(resolve, reject) {
                 dataCollection
                     .isSync(true)
                     .applyOffline(false)
                     .create(resultingItemsForCreate)
-                    .then(function (res) {
-                        resultingItemsForCreate = _.map(resultingItemsForCreate, function (item, index) {
+                    .then(function(res) {
+                        resultingItemsForCreate = _.map(resultingItemsForCreate, function(item, index) {
                             item.Id = res.result[index].Id;
                             item.CreatedAt = item.ModifiedAt = res.result[index].CreatedAt;
-                            var resultingItem = _.find(contentTypeData.createdItems, function (createdItem) {
+                            var resultingItem = _.find(contentTypeData.createdItems, function(createdItem) {
                                 return createdItem.resultingItem.Id === item.Id;
                             });
 
@@ -21376,7 +20952,7 @@ module.exports = (function () {
 
                             return item;
                         });
-                    }, function (err) {
+                    }, function(err) {
                         throw {
                             type: offlineItemStates.created,
                             items: resultingItemsForCreate,
@@ -21385,17 +20961,17 @@ module.exports = (function () {
                             storage: syncLocation.server
                         };
                     })
-                    .then(function () {
+                    .then(function() {
                         return dataCollection
                             .isSync(true)
                             .useOffline(true)
                             .create(resultingItemsForCreate)
-                            .then(function () {
-                                _.each(resultingItemsForCreate, function (createdItem) {
+                            .then(function() {
+                                _.each(resultingItemsForCreate, function(createdItem) {
                                     self._onItemProcessed(createdItem, collectionName, syncLocation.server,
                                         offlineItemStates.created);
                                 });
-                            }, function (err) {
+                            }, function(err) {
                                 throw {
                                     type: offlineItemStates.created,
                                     items: resultingItemsForCreate,
@@ -21405,14 +20981,18 @@ module.exports = (function () {
                                 };
                             });
                     })
-                    .then(function () {
+                    .then(function() {
                         if (ids && ids.length) {
-                            var filter = {Id: {$in: ids}};
+                            var filter = {
+                                Id: {
+                                    $in: ids
+                                }
+                            };
                             return dataCollection
                                 .isSync(true)
                                 .useOffline(true)
                                 .destroy(filter)
-                                .catch(function (err) {
+                                .catch(function(err) {
                                     throw {
                                         type: offlineItemStates.created,
                                         items: resultingItemsForCreate,
@@ -21424,19 +21004,19 @@ module.exports = (function () {
                         }
                     })
                     .then(resolve)
-                    .catch(function (err) {
+                    .catch(function(err) {
                         reject(err);
                     });
             });
 
-            _.each(resultingItemsForCreate, function (item) {
+            _.each(resultingItemsForCreate, function(item) {
                 syncPromises[item.Id] = promise;
             });
 
             return resultingItemsForCreate;
         },
 
-        _addCreatedItemsForSync: function (contentTypeData, syncPromises, dataCollection) {
+        _addCreatedItemsForSync: function(contentTypeData, syncPromises, dataCollection) {
             var collectionName = dataCollection.collectionName;
 
             var resultingItemsForCreate = _.pluck(contentTypeData.createdItems, 'resultingItem');
@@ -21453,30 +21033,30 @@ module.exports = (function () {
             }
         },
 
-        _addUpdatedItemsForSync: function (contentTypeData, getFilterOperation, syncPromises, dataCollection, itemUpdateOperation) {
+        _addUpdatedItemsForSync: function(contentTypeData, getFilterOperation, syncPromises, dataCollection, itemUpdateOperation) {
             var self = this;
             var collectionName = dataCollection.collectionName;
             self._eachSyncItem(contentTypeData.modifiedItems, getFilterOperation, collectionName, itemUpdateOperation);
         },
 
-        _addDeletedItemsForSync: function (contentTypeData, getFilterOperation, syncPromises, dataCollection, itemDeleteOperation) {
+        _addDeletedItemsForSync: function(contentTypeData, getFilterOperation, syncPromises, dataCollection, itemDeleteOperation) {
             var self = this;
 
             var collectionName = dataCollection.collectionName;
             self._eachSyncItem(contentTypeData.deletedItems, getFilterOperation, collectionName, itemDeleteOperation);
         },
 
-        _onSyncResponse: function (res, item, collectionName, operation, isCustomItem) {
+        _onSyncResponse: function(res, item, collectionName, operation, isCustomItem) {
             var self = this;
 
             if (res.result !== 1) {
-                return new rsvp.Promise(function (resolve, reject) {
+                return new rsvp.Promise(function(resolve, reject) {
                     reject(_.extend({}, EverliveErrors.syncConflict, {
                         contentType: collectionName
                     }));
                 });
             } else {
-                if (operation === DataQuery.operations.update) {
+                if (operation === DataQuery.operations.Update) {
                     self._onItemProcessed(item, collectionName, syncLocation.server, offlineItemStates.modified);
                     var updatedItem = _.extend({}, item, {
                         ModifiedAt: res.ModifiedAt
@@ -21493,9 +21073,9 @@ module.exports = (function () {
                     });
 
                     return this.processQuery(updateQuery)
-                        .then(function () {
+                        .then(function() {
                             if (isCustomItem) {
-                                var existingItem = _.find(self._syncResultInfo.syncedItems[collectionName], function (syncedItem) {
+                                var existingItem = _.find(self._syncResultInfo.syncedItems[collectionName], function(syncedItem) {
                                     return syncedItem.itemId === item.Id;
                                 });
 
@@ -21504,10 +21084,10 @@ module.exports = (function () {
                                 }
                             }
                         });
-                } else if (operation === DataQuery.operations.remove) {
+                } else if (operation === DataQuery.operations.Delete) {
                     self._onItemProcessed(item, collectionName, syncLocation.server, offlineItemStates.deleted);
                     return this._purgeById(collectionName, item.Id)
-                        .then(function () {
+                        .then(function() {
                             if (isCustomItem) {
                                 self._onItemProcessed(item, collectionName, syncLocation.client, offlineItemStates.deleted);
                             }
@@ -21516,17 +21096,17 @@ module.exports = (function () {
             }
         },
 
-        _purgeById: function (contentType, itemId) {
+        _purgeById: function(contentType, itemId) {
             var self = this;
 
             return this._queryProcessor._getCollection(contentType)
-                .then(function (collection) {
+                .then(function(collection) {
                     delete collection[itemId];
                     return self._queryProcessor._persistData(contentType);
                 });
         },
 
-        sync: function () {
+        sync: function() {
             var self = this;
             self._syncResultInfo = self._syncResultInfo || {
                 syncedItems: {},
@@ -21541,12 +21121,12 @@ module.exports = (function () {
             }
 
             self._fireSyncStart()
-                .then(function () {
+                .then(function() {
                     return self._applySync();
                 })
-                .then(function (syncResults) {
+                .then(function(syncResults) {
                     var conflictsWhileSync = [];
-                    _.each(syncResults, function (syncResult, itemId) {
+                    _.each(syncResults, function(syncResult, itemId) {
                         if (syncResult && syncResult.state === 'rejected') {
                             if (syncResult.reason && syncResult.reason.code === EverliveErrors.syncConflict.code) {
                                 conflictsWhileSync.push(syncResult);
@@ -21565,13 +21145,16 @@ module.exports = (function () {
                         self._fireSyncEnd();
                     }
                 })
-                .catch(function (err) {
+                .catch(function(err) {
+                    if (!err) {
+                        err = new EverliveError(EverliveErrors.syncErrorUnknown);
+                    }
                     self._syncResultInfo.error = err;
                     self._fireSyncEnd();
                 });
         },
 
-        _handleKeepServer: function (typeName, conflictingItem, offlineSyncOperations, contentTypeSyncData) {
+        _handleKeepServer: function(typeName, conflictingItem, offlineSyncOperations, contentTypeSyncData) {
             var self = this;
 
             var serverItem = conflictingItem.serverItem;
@@ -21581,7 +21164,7 @@ module.exports = (function () {
                 // update the item offline
                 syncQuery = new DataQuery({
                     collectionName: typeName,
-                    operation: DataQuery.operations.update,
+                    operation: DataQuery.operations.Update,
                     additionalOptions: {
                         id: serverItem.Id
                     },
@@ -21591,14 +21174,14 @@ module.exports = (function () {
                 // create item offline
                 syncQuery = new DataQuery({
                     collectionName: typeName,
-                    operation: DataQuery.operations.create,
+                    operation: DataQuery.operations.Create,
                     data: serverItem
                 });
             } else if (!serverItem && clientItem) {
                 // delete item offline
                 syncQuery = new DataQuery({
                     collectionName: typeName,
-                    operation: DataQuery.operations.removeSingle,
+                    operation: DataQuery.operations.DeleteById,
                     additionalOptions: {
                         id: clientItem.Id
                     }
@@ -21608,11 +21191,11 @@ module.exports = (function () {
             }
 
             syncQuery.isSync = true;
-            offlineSyncOperations.push(new rsvp.Promise(function (resolve, reject) {
+            offlineSyncOperations.push(new rsvp.Promise(function(resolve, reject) {
                 self.processQuery(syncQuery)
-                    .then(function () {
+                    .then(function() {
                         switch (syncQuery.operation) {
-                            case DataQuery.operations.update:
+                            case DataQuery.operations.Update:
                                 self._onItemProcessed(serverItem, typeName, syncLocation.client, offlineItemStates.modified);
                                 // the files content type is special and needs to enable the file contents offline, so we cannot only
                                 // update the data
@@ -21624,27 +21207,27 @@ module.exports = (function () {
                                     });
                                 }
                                 break;
-                            case DataQuery.operations.create:
+                            case DataQuery.operations.Create:
                                 self._onItemProcessed(serverItem, typeName, syncLocation.client, offlineItemStates.created);
                                 break;
-                            case DataQuery.operations.removeSingle:
+                            case DataQuery.operations.DeleteById:
                                 self._onItemProcessed(clientItem, typeName, syncLocation.client, offlineItemStates.deleted);
                                 break;
                         }
                         resolve();
-                    }, function (err) {
+                    }, function(err) {
                         var itemId;
                         var operation;
                         switch (syncQuery.operation) {
-                            case DataQuery.operations.update:
+                            case DataQuery.operations.Update:
                                 itemId = serverItem.Id;
                                 operation = offlineItemStates.modified;
                                 break;
-                            case DataQuery.operations.create:
+                            case DataQuery.operations.Create:
                                 itemId = serverItem.Id;
                                 operation = offlineItemStates.created;
                                 break;
-                            case DataQuery.operations.removeSingle:
+                            case DataQuery.operations.DeleteById:
                                 itemId = clientItem.Id;
                                 operation = offlineItemStates.deleted;
                                 break;
@@ -21661,14 +21244,16 @@ module.exports = (function () {
             }));
         },
 
-        _handleKeepClient: function (conflictingItem, contentTypeSyncData) {
+        _handleKeepClient: function(conflictingItem, contentTypeSyncData) {
             var serverItem = conflictingItem.serverItem;
             var clientItem = conflictingItem.clientItem;
             var resultingItem;
             var collection;
 
             if (serverItem && clientItem) {
-                resultingItem = _.extend(clientItem, {ModifiedAt: new Date(serverItem.ModifiedAt)});
+                resultingItem = _.extend(clientItem, {
+                    ModifiedAt: new Date(serverItem.ModifiedAt)
+                });
                 collection = contentTypeSyncData.modifiedItems;
             } else if (serverItem && !clientItem) {
                 resultingItem = serverItem;
@@ -21687,14 +21272,14 @@ module.exports = (function () {
             });
         },
 
-        _handleCustom: function (conflictingItem, typeName, offlineSyncOperations, contentTypeSyncData) {
+        _handleCustom: function(conflictingItem, typeName, offlineSyncOperations, contentTypeSyncData) {
             var serverItem = conflictingItem.serverItem;
             var clientItem = conflictingItem.clientItem;
             var customItem = _.omit(conflictingItem.result.item, 'CreatedAt', 'ModifiedAt');
             if (serverItem && customItem) {
                 var createItemOfflineQuery = new DataQuery({
                     collectionName: typeName,
-                    operation: DataQuery.operations.create,
+                    operation: DataQuery.operations.Create,
                     data: serverItem // create the server item offline and it will be updated when sync finishes
                 });
 
@@ -21722,7 +21307,7 @@ module.exports = (function () {
             } else if (!serverItem && customItem && clientItem) {
                 var updateItemOfflineQuery = new DataQuery({
                     collectionName: typeName,
-                    operation: DataQuery.operations.update,
+                    operation: DataQuery.operations.Update,
                     data: customItem,
                     additionalOptions: {
                         id: clientItem.Id
@@ -21747,13 +21332,13 @@ module.exports = (function () {
             }
         },
 
-        _mergeResolvedConflicts: function (conflicts, syncData) {
+        _mergeResolvedConflicts: function(conflicts, syncData) {
             var self = this;
 
             var offlineSyncOperations = [];
-            _.each(conflicts, function (conflict) {
+            _.each(conflicts, function(conflict) {
                 var typeName = conflict.contentTypeName;
-                _.each(conflict.conflictingItems, function (conflictingItem) {
+                _.each(conflict.conflictingItems, function(conflictingItem) {
                     var contentTypeSyncData = syncData[typeName];
                     switch (conflictingItem.result.resolutionType) {
                         case constants.ConflictResolution.KeepServer:
@@ -21779,14 +21364,16 @@ module.exports = (function () {
             return rsvp.all(offlineSyncOperations);
         },
 
-        _getSyncItemStates: function (contentType, offlineItems, serverItems) {
+        _getSyncItemStates: function(contentType, offlineItems, serverItems) {
             var self = this;
 
             var contentTypeSyncData = {
                 itemsForSync: {
                     createdItems: [],
                     modifiedItems: [],
-                    deletedItems: []
+                    modifiedItemsOnServer: [],
+                    deletedItems: [],
+                    deletedItemsOnServer: []
                 },
                 conflicts: {
                     contentTypeName: contentType,
@@ -21794,8 +21381,10 @@ module.exports = (function () {
                 }
             };
 
-            _.each(offlineItems, function (offlineItem) {
-                var serverItem = _.findWhere(serverItems, {Id: offlineItem.Id});
+            _.each(offlineItems, function(offlineItem) {
+                var serverItem = _.findWhere(serverItems, {
+                    Id: offlineItem.Id
+                });
                 if (serverItem) {
                     if (serverItem.Id === offlineItem.Id && offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.created) {
                         if (self.setup.conflicts.strategy === constants.ConflictResolutionStrategy.Custom) {
@@ -21826,8 +21415,7 @@ module.exports = (function () {
                     var hasUpdateConflict = false;
 
                     if (clientItemChanged) {
-                        hasUpdateConflict = serverItem.ModifiedAt.getTime() !== offlineItem.ModifiedAt.getTime()
-                        || offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.deleted;
+                        hasUpdateConflict = serverItem.ModifiedAt.getTime() !== offlineItem.ModifiedAt.getTime() || offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.deleted;
                         //TODO: when an item is removed offline its ModifiedAt field is not set, check if it needs to be set or we can use this
                     }
 
@@ -21845,10 +21433,17 @@ module.exports = (function () {
                                 remoteItem: serverItem,
                                 resultingItem: offlineItem
                             });
-                        } else {
+                        } else if (offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.modified) {
                             contentTypeSyncData.itemsForSync.modifiedItems.push({
                                 remoteItem: serverItem,
                                 resultingItem: offlineItem
+                            });
+                        } else if (offlineItem[constants.offlineItemsStateMarker] === undefined) {
+                            contentTypeSyncData.itemsForSync.modifiedItemsOnServer.push(serverItem);
+                        } else {
+                            contentTypeSyncData.itemsForSync.modifiedItems.push({
+                                remoteItem: serverItem,
+                                resultingItem: serverItem
                             });
                         }
                     }
@@ -21860,11 +21455,13 @@ module.exports = (function () {
                             serverItem: null,
                             result: {}
                         });
-                    } else {
+                    } else if (offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.created) {
                         contentTypeSyncData.itemsForSync.createdItems.push({
                             remoteItem: serverItem,
                             resultingItem: offlineItem
                         });
+                    } else {
+                        contentTypeSyncData.itemsForSync.deletedItemsOnServer.push(offlineItem);
                     }
                 }
 
@@ -21874,16 +21471,16 @@ module.exports = (function () {
             return contentTypeSyncData;
         },
 
-        _setResolutionTypeForItem: function (resolutionType, conflictingItem) {
+        _setResolutionTypeForItem: function(resolutionType, conflictingItem) {
             conflictingItem.result = {
                 resolutionType: resolutionType
             };
         },
 
-        _applyResolutionStrategy: function (conflicts) {
+        _applyResolutionStrategy: function(conflicts) {
             var self = this;
             var conflictResolutionStrategy = self.setup.conflicts.strategy;
-            return new rsvp.Promise(function (resolve, reject) {
+            return new rsvp.Promise(function(resolve, reject) {
                 var conflictResolutionPromises = [];
 
                 for (var i = 0; i < conflicts.length; i++) {
@@ -21898,10 +21495,10 @@ module.exports = (function () {
                                 var customStrategy = self.setup.conflicts.implementation;
                                 if (!customStrategy) {
                                     return reject(new EverliveError('Implementation of the conflict resolution strategy ' +
-                                    'must be provided when set to Custom'));
+                                        'must be provided when set to Custom'));
                                 }
 
-                                conflictResolutionPromises.push(new rsvp.Promise(function (resolve) {
+                                conflictResolutionPromises.push(new rsvp.Promise(function(resolve) {
                                     customStrategy(conflicts, resolve)
                                 }));
                                 break;
@@ -21912,25 +21509,25 @@ module.exports = (function () {
                 }
 
                 rsvp.all(conflictResolutionPromises)
-                    .then(function () {
+                    .then(function() {
                         resolve();
                     });
             });
         },
 
-        _getSyncPromiseBatch: function (contentType, batchIds) {
+        _getSyncPromiseBatch: function(contentType, batchIds) {
             var self = this;
 
-            return new rsvp.Promise(function (resolve, reject) {
+            return new rsvp.Promise(function(resolve, reject) {
                 var dataQuery = new DataQuery({
                     collectionName: contentType,
-                    filter: {
+                    query: new Query({
                         'Id': {
                             '$in': batchIds
                         }
-                    },
-                    operation: DataQuery.operations.read,
-                    onSuccess: function (res) {
+                    }),
+                    operation: DataQuery.operations.Read,
+                    onSuccess: function(res) {
                         resolve(res.result);
                     },
                     applyOffline: false,
@@ -21944,26 +21541,30 @@ module.exports = (function () {
             });
         },
 
-        _getDirtyItems: function (collection) {
-            return this._queryProcessor._getDirtyItems(collection);
+        _getPlainItemsForSync: function(collection, forceDirty) {
+            if (this.setup.syncUnmodified && !forceDirty) {
+                return _.values(collection);
+            } else {
+                return this._queryProcessor._getDirtyItems(collection);
+            }
         },
 
-        _getSyncPromiseForCollection: function (collection, contentType) {
-            var self = this;
-
-            var batches = [];
-            var batchSize = constants.syncBatchSize;
-
-            var offlineItemsToSync = self._getDirtyItems(collection);
-
-            var allIdsForSync;
+        _getIdsForSync: function(contentType, offlineItemsToSync) {
             if (this._shouldAutogenerateIdForContentType(contentType)) {
-                allIdsForSync = _.pluck(offlineItemsToSync, '_id');
+                return _.pluck(offlineItemsToSync, '_id');
             } else {
-                allIdsForSync = _.pluck(_.reject(offlineItemsToSync, function (offlineItem) {
+                return _.pluck(_.reject(offlineItemsToSync, function(offlineItem) {
                     return offlineItem[constants.offlineItemsStateMarker] === offlineItemStates.created;
                 }), '_id');
             }
+        },
+
+        _getSyncPromiseForCollection: function(collection, contentType) {
+            var batches = [];
+            var batchSize = constants.syncBatchSize;
+
+            var offlineItemsToSync = this._getPlainItemsForSync(collection);
+            var allIdsForSync = this._getIdsForSync(contentType, offlineItemsToSync);
 
             var batchCount = Math.ceil(allIdsForSync.length / batchSize);
 
@@ -21975,12 +21576,12 @@ module.exports = (function () {
             }
 
             return rsvp.all(batches)
-                .then(function (serverItemsSyncResponses) {
+                .then(function(serverItemsSyncResponses) {
                     var result = {
                         serverItems: []
                     };
 
-                    _.each(serverItemsSyncResponses, function (serverItems) {
+                    _.each(serverItemsSyncResponses, function(serverItems) {
                         result.serverItems = _.union(result.serverItems, serverItems);
                     });
 
@@ -21989,14 +21590,17 @@ module.exports = (function () {
                 });
         },
 
-        _onItemFailed: function (syncResult, itemId) {
+        _onItemFailed: function(syncResult, itemId) {
             var self = this;
 
             var results = syncResult.reason ? syncResult.reason : syncResult;
             var targetType = results.contentType;
 
-            var getFailedItem = function (id) {
+            var getFailedItem = function(id) {
                 var pickedObject = _.pick(results, 'storage', 'type', 'error');
+                if (!pickedObject.error) {
+                    pickedObject.error = new EverliveError(EverliveErrors.syncErrorUnknown);
+                }
                 return _.extend({
                     itemId: id,
                     contentType: targetType
@@ -22005,7 +21609,7 @@ module.exports = (function () {
 
             var failedItems = [];
             if (results.type === offlineItemStates.created && results.items) {
-                failedItems = _.map(results.items, function (item) {
+                failedItems = _.map(results.items, function(item) {
                     return getFailedItem(item.Id);
                 });
             } else {
@@ -22013,13 +21617,13 @@ module.exports = (function () {
             }
 
             self._syncResultInfo.failedItems[targetType] = self._syncResultInfo.failedItems[targetType] || [];
-            _.each(failedItems, function (failedItem) {
+            _.each(failedItems, function(failedItem) {
                 self._syncResultInfo.failedItems[targetType].push(failedItem);
                 self._fireItemProcessed(failedItem);
             });
         },
 
-        _onItemProcessed: function (item, contentType, syncStorage, syncType) {
+        _onItemProcessed: function(item, contentType, syncStorage, syncType) {
             var syncInfo = {
                 itemId: item.Id,
                 type: syncType,
@@ -22039,26 +21643,28 @@ module.exports = (function () {
             this._fireItemProcessed(syncInfo);
         },
 
-        _fireItemProcessed: function (syncInfo) {
-            this._everlive._emitter.emit('itemProcessed', syncInfo);
+        _fireItemProcessed: function(syncInfo) {
+            this._everlive._emitter.emit(constants.Events.ItemProcessed, syncInfo);
         },
 
-        _getClientWinsSyncData: function (collections) {
+        _getClientWinsSyncData: function(collections, forceDirty) {
             var self = this;
             var syncData = {};
-            _.each(collections, function (collection, typeName) {
+            _.each(collections, function(collection, typeName) {
                 if (!syncData[typeName]) {
                     syncData[typeName] = {
                         createdItems: [],
                         modifiedItems: [],
-                        deletedItems: []
+                        deletedItems: [],
+                        deletedItemsOnServer: [],
+                        modifiedItemsOnServer: []
                     };
                 }
 
-                var dirtyItems = self._getDirtyItems(collection);
-                var itemsForSync = offlineTransformations.idTransform(dirtyItems);
+                var plainItems = self._getPlainItemsForSync(collection, forceDirty);
+                var itemsForSync = offlineTransformations.idTransform(plainItems);
 
-                _.each(itemsForSync, function (itemForSync) {
+                _.each(itemsForSync, function(itemForSync) {
                     switch (itemForSync[constants.offlineItemsStateMarker]) {
                         case offlineItemStates.created:
                             syncData[typeName].createdItems.push({
@@ -22087,17 +21693,17 @@ module.exports = (function () {
             return syncData;
         },
 
-        _getModifiedFilesForSyncClientWins: function (itemId, item, collectionName) {
+        _getModifiedFilesForSyncClientWins: function(itemId, item, collectionName) {
             var self = this;
             var sdk = self._everlive;
 
-            return new rsvp.Promise(function (resolve, reject) {
+            return new rsvp.Promise(function(resolve, reject) {
                 var offlineFiles = self.files;
                 offlineFiles.getOfflineLocation(itemId)
-                    .then(function (location) {
+                    .then(function(location) {
                         if (location) {
                             return self._transferFile(true, item, location)
-                                .then(function (result) {
+                                .then(function(result) {
                                     if (result.Result === false) {
                                         reject({
                                             type: offlineItemStates.modified,
@@ -22111,7 +21717,7 @@ module.exports = (function () {
                                             result: result
                                         };
                                     }
-                                }, function (err) {
+                                }, function(err) {
                                     reject({
                                         type: offlineItemStates.modified,
                                         itemId: item.Id,
@@ -22125,9 +21731,9 @@ module.exports = (function () {
                                 .isSync(true)
                                 .applyOffline(false)
                                 .updateSingle(item)
-                                .then(function (response) {
+                                .then(function(response) {
                                     return response;
-                                }, function (err) {
+                                }, function(err) {
                                     reject({
                                         type: offlineItemStates.modified,
                                         itemId: item.Id,
@@ -22138,7 +21744,7 @@ module.exports = (function () {
                                 });
                         }
                     })
-                    .then(function (onlineResponse) {
+                    .then(function(onlineResponse) {
                         var onlineResult = onlineResponse.result;
                         item.ModifiedAt = onlineResult.ModifiedAt;
                         self._onItemProcessed(item, collectionName, syncLocation.server, offlineItemStates.modified);
@@ -22148,7 +21754,7 @@ module.exports = (function () {
                             .updateSingle(item);
                     })
                     .then(resolve)
-                    .catch(function (err) {
+                    .catch(function(err) {
                         reject({
                             type: offlineItemStates.modified,
                             itemId: item.Id,
@@ -22160,22 +21766,22 @@ module.exports = (function () {
             });
         },
 
-        _getModifiedItemForSyncClientWins: function (dataCollection, item, collectionName) {
+        _getModifiedItemForSyncClientWins: function(dataCollection, item, collectionName) {
             var self = this;
 
-            return new rsvp.Promise(function (resolve, reject) {
+            return new rsvp.Promise(function(resolve, reject) {
                 return dataCollection
                     .isSync(true)
                     .applyOffline(false)
                     .updateSingle(item)
-                    .then(function (res) {
+                    .then(function(res) {
                         self._onItemProcessed(item, collectionName, syncLocation.server, offlineItemStates.modified);
                         var updatedItem = _.extend({}, item, {
                             ModifiedAt: res.ModifiedAt
                         });
 
                         var updateQuery = new DataQuery({
-                            operation: DataQuery.operations.update,
+                            operation: DataQuery.operations.Update,
                             data: updatedItem,
                             additionalOptions: {
                                 id: item.Id
@@ -22185,7 +21791,7 @@ module.exports = (function () {
                         });
 
                         return self.processQuery(updateQuery);
-                    }, function (res) {
+                    }, function(res) {
                         reject({
                             storage: syncLocation.server,
                             type: offlineItemStates.modified,
@@ -22194,7 +21800,7 @@ module.exports = (function () {
                             error: res
                         });
                     })
-                    .then(resolve, function (err) {
+                    .then(resolve, function(err) {
                         reject({
                             storage: syncLocation.client,
                             type: offlineItemStates.modified,
@@ -22206,10 +21812,10 @@ module.exports = (function () {
             });
         },
 
-        _addModifiedItemsForSyncClientWins: function (contentTypeData, syncPromises, dataCollection) {
+        _addModifiedItemsForSyncClientWins: function(contentTypeData, syncPromises, dataCollection) {
             var self = this;
 
-            this._addUpdatedItemsForSync(contentTypeData, getSyncFilterNoModifiedAt, syncPromises, dataCollection, function (item) {
+            this._addUpdatedItemsForSync(contentTypeData, getSyncFilterNoModifiedAt, syncPromises, dataCollection, function(item) {
                 var itemId = item.Id;
                 if (!itemId) {
                     throw new EverliveError('When updating an item it must have an Id field.');
@@ -22224,13 +21830,13 @@ module.exports = (function () {
             });
         },
 
-        _addDeletedItemsForSyncClientWins: function (contentTypeData, syncPromises, dataCollection) {
+        _addDeletedItemsForSyncClientWins: function(contentTypeData, syncPromises, dataCollection) {
             var self = this;
 
             this._addDeletedItemsForSync(contentTypeData, getSyncFilterNoModifiedAt, syncPromises, dataCollection,
-                function (item, itemFilter) {
+                function(item, itemFilter) {
                     var collectionName = dataCollection.collectionName;
-                    syncPromises[item.Id] = new rsvp.Promise(function (resolve, reject) {
+                    syncPromises[item.Id] = new rsvp.Promise(function(resolve, reject) {
                         var itemId = item.Id;
                         if (!itemId) {
                             throw new EverliveError('When deleting an item it must have an Id field.');
@@ -22240,11 +21846,11 @@ module.exports = (function () {
                             .isSync(true)
                             .applyOffline(false)
                             .destroySingle(itemFilter)
-                            .then(function () {
+                            .then(function() {
                                 self._onItemProcessed(item, collectionName, syncLocation.server, offlineItemStates.deleted);
-                                return self._purgeById(collectionName, item.Id).then(function () {
+                                return self._purgeById(collectionName, item.Id).then(function() {
                                     resolve();
-                                }, function (err) {
+                                }, function(err) {
                                     reject(_.extend({}, {
                                         storage: syncLocation.client,
                                         type: offlineItemStates.deleted,
@@ -22253,7 +21859,7 @@ module.exports = (function () {
                                         error: err
                                     }));
                                 });
-                            }, function (err) {
+                            }, function(err) {
                                 reject(_.extend({}, {
                                     storage: syncLocation.server,
                                     type: offlineItemStates.deleted,
@@ -22266,12 +21872,12 @@ module.exports = (function () {
                 });
         },
 
-        _applyClientWins: function (collections) {
+        _applyClientWins: function(collections) {
             var self = this;
-            var syncData = this._getClientWinsSyncData(collections);
+            var syncData = this._getClientWinsSyncData(collections, true);
             var syncPromises = {};
 
-            _.each(syncData, function (contentTypeData, typeName) {
+            _.each(syncData, function(contentTypeData, typeName) {
                 var dataCollection = self._everlive.data(typeName);
                 if (contentTypeData.createdItems.length) {
                     self._addCreatedItemsForSync(contentTypeData, syncPromises, dataCollection);
@@ -22286,26 +21892,132 @@ module.exports = (function () {
                 }
             });
 
-            return rsvp.hashSettled(syncPromises);
+            var syncResult;
+
+            return rsvp.hashSettled(syncPromises)
+                .then(function(result) {
+                    syncResult = result;
+                    if (self.setup.syncUnmodified) {
+                        var promises = [];
+                        _.each(collections, function(collection, collectionName) {
+                            var allOfflineItems = self._getPlainItemsForSync(collection);
+                            var itemsToDownload = _.where(allOfflineItems, function(offlineItem) {
+                                return offlineItem[constants.offlineItemsStateMarker] !== undefined;
+                            });
+
+                            var DataCollection = self._everlive.data(collectionName);
+
+                            var itemIdsForSync = _.pluck(itemsToDownload, '_id');
+                            var downloadPromise = DataCollection
+                                .isSync(true)
+                                .useOffline(false)
+                                .get({
+                                    Id: {
+                                        $in: itemIdsForSync
+                                    }
+                                })
+                                .then(function(res) {
+                                    var serverItems = res.result;
+                                    var serverItemIds = _.pluck(serverItems, 'Id');
+                                    return self._unmodifiedClientWinsItemsDeletedOnServer(collectionName, serverItemIds, itemsToDownload)
+                                        .then(function() {
+                                            return self._unmodifiedClientWinsItemsUpdatedOnServer(collectionName, serverItems, itemsToDownload);
+                                        });
+                                });
+
+                            promises.push(downloadPromise);
+                        });
+
+                        return rsvp.all(promises);
+                    }
+                })
+                .then(function() {
+                    return syncResult;
+                });
         },
 
-        _modifyFileStandardSync: function (syncPromises, itemId, item, collectionName, resolutionType) {
+        _unmodifiedClientWinsItemsDeletedOnServer: function(collectionName, serverItemIds, clientItems) {
+            var self = this;
+            var itemsForDeleteIds = [];
+            var itemIdsForSync = _.pluck(clientItems, '_id');
+            _.each(itemIdsForSync, function(itemId) {
+                if (serverItemIds.indexOf(itemId) === -1) {
+                    itemsForDeleteIds.push(itemId);
+                }
+            });
+
+            return utils.successfulPromise()
+                .then(function() {
+                    if (itemsForDeleteIds.length !== 0) {
+                        var deleteQuery = new DataQuery({
+                            operation: DataQuery.operations.Delete,
+                            filter: {
+                                Id: {
+                                    $in: itemsForDeleteIds
+                                }
+                            },
+                            collectionName: collectionName,
+                            isSync: true
+                        });
+
+                        return self.processQuery(deleteQuery).then(function() {
+                            _.each(itemsForDeleteIds, function(itemsForDeleteId) {
+                                self._onItemProcessed({Id: itemsForDeleteId}, collectionName, syncLocation.client, offlineItemStates.deleted);
+                            });
+                        });
+                    }
+                });
+        },
+
+        _unmodifiedClientWinsItemsUpdatedOnServer: function(collectionName, serverItems, clientItems) {
+            var self = this;
+            var updatePromises = [];
+
+            _.each(serverItems, function(serverItem) {
+                var item = _.find(clientItems, function(clientItem) {
+                    return clientItem._id === serverItem.Id;
+                });
+
+                if (item) {
+                    var updateQuery = new DataQuery({
+                        operation: DataQuery.operations.Update,
+                        data: serverItem,
+                        additionalOptions: {
+                            id: item._id
+                        },
+                        collectionName: collectionName,
+                        isSync: true
+                    });
+
+                    var itemUpdatedPromise = self.processQuery(updateQuery)
+                        .then(function(res) {
+                            self._onItemProcessed(serverItem, collectionName, syncLocation.client, offlineItemStates.modified);
+                        });
+
+                    updatePromises.push(itemUpdatedPromise);
+                }
+            });
+
+            return rsvp.all(updatePromises);
+        },
+
+        _modifyFileStandardSync: function(syncPromises, itemId, item, collectionName, resolutionType) {
             var self = this;
 
             var filesCollection = self._everlive.files;
-            syncPromises[itemId] = new rsvp.Promise(function (resolve, reject) {
+            syncPromises[itemId] = new rsvp.Promise(function(resolve, reject) {
                 var offlineLocation;
                 self.files.getOfflineLocation(itemId)
-                    .then(function (locationOnDisk) {
+                    .then(function(locationOnDisk) {
                         offlineLocation = locationOnDisk;
                     })
-                    .then(function () {
+                    .then(function() {
                         return filesCollection
                             .isSync(true)
                             .applyOffline(false)
                             .getById(itemId);
                     })
-                    .then(function (response) {
+                    .then(function(response) {
                         var file = response.result;
                         if (file.ModifiedAt.getTime() !== item.ModifiedAt.getTime()) {
                             reject(_.extend({}, new EverliveError(EverliveErrors.syncConflict), {
@@ -22315,10 +22027,10 @@ module.exports = (function () {
                             if (offlineLocation) {
                                 if (resolutionType === constants.ConflictResolution.KeepServer) {
                                     return self.files._saveFile(item.Uri, item.Filename, item.Id)
-                                        .then(function () {
+                                        .then(function() {
                                             return self._offlineFilesProcessor.purge(offlineLocation);
                                         })
-                                        .then(function () {
+                                        .then(function() {
                                             return response;
                                         });
                                 } else if (resolutionType === constants.ConflictResolution.KeepClient) {
@@ -22327,7 +22039,7 @@ module.exports = (function () {
                             }
                         }
                     })
-                    .then(function () {
+                    .then(function() {
                         return self._everlive.files
                             .isSync(true)
                             .useOffline(true)
@@ -22338,17 +22050,17 @@ module.exports = (function () {
             });
         },
 
-        _modifyContentTypeStandardSync: function (syncPromises, itemId, dataCollection, item, itemFilter, collectionName, isCustom) {
+        _modifyContentTypeStandardSync: function(syncPromises, itemId, dataCollection, item, itemFilter, collectionName, isCustom) {
             var self = this;
 
             syncPromises[itemId] = dataCollection
                 .isSync(true)
                 .applyOffline(false)
                 .update(item, itemFilter)
-                .then(function (res) {
-                    return self._onSyncResponse(res, item, collectionName, DataQuery.operations.update, isCustom);
-                }, function (err) {
-                    return new rsvp.Promise(function (resolve, reject) {
+                .then(function(res) {
+                    return self._onSyncResponse(res, item, collectionName, DataQuery.operations.Update, isCustom);
+                }, function(err) {
+                    return new rsvp.Promise(function(resolve, reject) {
                         reject({
                             type: offlineItemStates.modified,
                             itemId: item.Id,
@@ -22360,31 +22072,31 @@ module.exports = (function () {
                 });
         },
 
-        _applyStandardSync: function (collections) {
+        _applyStandardSync: function(collections) {
             var self = this;
 
             var promises = {};
-            _.each(collections, function (collection, contentType) {
+            _.each(collections, function(collection, contentType) {
                 promises[contentType] = self._getSyncPromiseForCollection(collection, contentType);
             });
 
             return rsvp.hash(promises)
-                .then(function (contentTypes) {
+                .then(function(contentTypes) {
                     return self._prepareSyncData(contentTypes);
                 })
-                .then(function (syncData) {
+                .then(function(syncData) {
                     return self._resolveConflicts(syncData);
                 })
-                .then(function (contentTypeSyncData) {
+                .then(function(contentTypeSyncData) {
                     var syncPromises = {};
-                    _.each(contentTypeSyncData, function (contentTypeData, collectionName) {
+                    _.each(contentTypeSyncData, function(contentTypeData, collectionName) {
                         var dataCollection = self._everlive.data(collectionName);
                         if (contentTypeData.createdItems.length) {
                             self._addCreatedItemsForSync(contentTypeData, syncPromises, dataCollection);
                         }
 
                         if (contentTypeData.modifiedItems.length) {
-                            self._addUpdatedItemsForSync(contentTypeData, getSyncFilterForItem, syncPromises, dataCollection, function (item, itemFilter, isCustom, resolutionType) {
+                            self._addUpdatedItemsForSync(contentTypeData, getSyncFilterForItem, syncPromises, dataCollection, function(item, itemFilter, isCustom, resolutionType) {
                                 var itemId = item.Id;
 
                                 if (utils.isContentType.files(collectionName)) {
@@ -22396,15 +22108,15 @@ module.exports = (function () {
                         }
 
                         if (contentTypeData.deletedItems.length) {
-                            self._addDeletedItemsForSync(contentTypeData, getSyncFilterForItem, syncPromises, dataCollection, function (item, itemFilter, isCustom) {
+                            self._addDeletedItemsForSync(contentTypeData, getSyncFilterForItem, syncPromises, dataCollection, function(item, itemFilter, isCustom) {
                                 syncPromises[item.Id] = dataCollection
                                     .isSync(true)
                                     .applyOffline(false)
                                     .destroy(itemFilter)
-                                    .then(function (res) {
-                                        return self._onSyncResponse(res, item, collectionName, DataQuery.operations.remove, isCustom);
-                                    }, function (err) {
-                                        return new rsvp.Promise(function (resolve, reject) {
+                                    .then(function(res) {
+                                        return self._onSyncResponse(res, item, collectionName, DataQuery.operations.Delete, isCustom);
+                                    }, function(err) {
+                                        return new rsvp.Promise(function(resolve, reject) {
                                             reject({
                                                 type: offlineItemStates.deleted,
                                                 itemId: item.Id,
@@ -22416,17 +22128,59 @@ module.exports = (function () {
                                     });
                             });
                         }
+
+                        _.each(contentTypeData.deletedItemsOnServer, function(item) {
+                            syncPromises[item.Id] = dataCollection
+                                .isSync(true)
+                                .useOffline(true)
+                                .destroySingle({
+                                    Id: item.Id
+                                })
+                                .then(function(res) {
+                                    return self._onItemProcessed(item, collectionName, syncLocation.client, offlineItemStates.deleted);
+                                }, function(err) {
+                                    return new rsvp.Promise(function(resolve, reject) {
+                                        reject({
+                                            type: offlineItemStates.deleted,
+                                            itemId: item.Id,
+                                            contentType: collectionName,
+                                            error: err,
+                                            storage: syncLocation.client
+                                        });
+                                    });
+                                });
+                        });
+
+                        _.each(contentTypeData.modifiedItemsOnServer, function(item) {
+                            syncPromises[item.Id] = dataCollection
+                                .isSync(true)
+                                .useOffline(true)
+                                .update(item, {
+                                    Id: item.Id
+                                })
+                                .then(function(res) {
+                                    return self._onItemProcessed(item, collectionName, syncLocation.client, offlineItemStates.modified);
+                                }, function(err) {
+                                    return utils.rejectedPromise({
+                                        type: offlineItemStates.modified,
+                                        itemId: item.Id,
+                                        contentType: collectionName,
+                                        error: err,
+                                        storage: syncLocation.client
+                                    })
+                                })
+                        })
                     });
 
                     return rsvp.hashSettled(syncPromises);
                 });
         },
 
-        _applySync: function () {
+        _applySync: function() {
             var self = this;
 
             return this._queryProcessor._getAllCollections()
-                .then(function (collections) {
+                .then(function(collections) {
                     if (self.setup.conflicts.strategy === constants.ConflictResolutionStrategy.ClientWins) {
                         return self._applyClientWins(collections);
                     } else {
@@ -22448,17 +22202,17 @@ module.exports = (function () {
          * @method getItemsForSync
          * @name getItemsForSync
          * @memberOf OfflineModule.prototype
-         * @returns Promise
+         * @returns {Promise}
          */
-        getItemsForSync: function (success, error) {
+        getItemsForSync: function(success, error) {
             var self = this;
-            var dirtyItemsForSync = {};
-            return buildPromise(function (successCb, errorCb) {
+            var plainItemsForSync = {};
+            return buildPromise(function(successCb, errorCb) {
                 self._queryProcessor._getAllCollections()
-                    .then(function (collections) {
-                        _.each(collections, function (collection, collectionName) {
-                            var dirtyItems = self._getDirtyItems(collection);
-                            dirtyItemsForSync[collectionName] = _.map(dirtyItems, function (item) {
+                    .then(function(collections) {
+                        _.each(collections, function(collection, collectionName) {
+                            var plainItems = self._getPlainItemsForSync(collection);
+                            plainItemsForSync[collectionName] = _.map(plainItems, function(item) {
                                 var itemForSync = {
                                     item: _.extend({}, item),
                                     action: item[constants.offlineItemsStateMarker]
@@ -22469,7 +22223,7 @@ module.exports = (function () {
                             });
                         });
 
-                        successCb(dirtyItemsForSync);
+                        successCb(plainItemsForSync);
                     }).catch(errorCb);
             }, success, error);
         }
@@ -22477,8 +22231,7 @@ module.exports = (function () {
 
     return OfflineModule;
 })();
-
-},{"../EverliveError":47,"../Request":52,"../common":58,"../constants":59,"../query/DataQuery":85,"../query/RequestOptionsBuilder":88,"../utils":99,"./OfflineFilesModule":72,"./OfflineFilesProcessor":73,"./OfflineQueryProcessor":74,"./offlineTransformations":78,"path":3}],76:[function(require,module,exports){
+},{"../EverliveError":48,"../Request":53,"../common":59,"../constants":60,"../query/DataQuery":87,"../query/Query":89,"../query/RequestOptionsBuilder":91,"../utils":102,"./OfflineFilesModule":73,"./OfflineFilesProcessor":74,"./OfflineQueryProcessor":75,"./offlineTransformations":79,"path":3}],77:[function(require,module,exports){
 var constants = require('../constants');
 var persisters = require('./offlinePersisters');
 var LocalStoragePersister = persisters.LocalStoragePersister;
@@ -22503,7 +22256,8 @@ var defaultOfflineStorageOptions = {
         name: '',
         provider: isNativeScript ? constants.StorageProvider.FileSystem : constants.StorageProvider.LocalStorage,
         implementation: null,
-        storagePath: constants.DefaultStoragePath
+        storagePath: constants.DefaultStoragePath,
+        requestedQuota: constants.DefaultFilesystemStorageQuota
     },
     typeSettings: {},
     encryption: {
@@ -22535,7 +22289,7 @@ module.exports = (function () {
     };
 
     var initStoragePersister = function initStoragePersister(options) {
-        var storageKey = options.storage.name || 'everliveOfflineStorage_' + this.setup.apiKey;
+        var storageKey = options.storage.name || 'everliveOfflineStorage_' + this.setup.appId;
         var persister = persisters.getPersister(storageKey, options);
         options.storage.implementation = persister;
         return persister;
@@ -22603,7 +22357,7 @@ module.exports = (function () {
         buildOfflineStorageOptions: buildOfflineStorageOptions
     }
 }());
-},{"../EverliveError":47,"../common":58,"../constants":59,"../encryption/CryptographicProvider":60,"../everlive.platform":61,"./OfflineStorageModule":75,"./offlinePersisters":77}],77:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"../encryption/CryptographicProvider":61,"../everlive.platform":62,"./OfflineStorageModule":76,"./offlinePersisters":78}],78:[function(require,module,exports){
 var BasePersister = require('./persisters/BasePersister');
 var LocalStoragePersister = require('./persisters/LocalStoragePersister');
 var FileSystemPersister = require('./persisters/FileSystemPersister');
@@ -22640,7 +22394,7 @@ module.exports = {
         return persister;
     }
 };
-},{"../EverliveError":47,"../common":58,"../constants":59,"./persisters/BasePersister":79,"./persisters/FileSystemPersister":80,"./persisters/LocalStoragePersister":81}],78:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"./persisters/BasePersister":80,"./persisters/FileSystemPersister":81,"./persisters/LocalStoragePersister":82}],79:[function(require,module,exports){
 'use strict';
 
 var constants = require('../constants');
@@ -22724,7 +22478,7 @@ var offlineTransformations = {
 };
 
 module.exports = offlineTransformations;
-},{"../common":58,"../constants":59}],79:[function(require,module,exports){
+},{"../common":59,"../constants":60}],80:[function(require,module,exports){
 'use strict';
 
 var EverliveError = require('../../EverliveError').EverliveError;
@@ -22834,7 +22588,7 @@ var BasePersister = (function () {
 }());
 
 module.exports = BasePersister;
-},{"../../EverliveError":47,"../../common":58,"../../utils":99}],80:[function(require,module,exports){
+},{"../../EverliveError":48,"../../common":59,"../../utils":102}],81:[function(require,module,exports){
 'use strict';
 
 var FileStore = require('../../storages/FileStore');
@@ -22961,7 +22715,7 @@ var FileSystemPersister = (function () {
 }());
 
 module.exports = FileSystemPersister;
-},{"../../EverliveError":47,"../../common":58,"../../everlive.platform":61,"../../storages/FileStore":92,"../../utils":99,"./BasePersister":79,"path":3,"util":6}],81:[function(require,module,exports){
+},{"../../EverliveError":48,"../../common":59,"../../everlive.platform":62,"../../storages/FileStore":95,"../../utils":102,"./BasePersister":80,"path":3,"util":6}],82:[function(require,module,exports){
 'use strict';
 
 var common = require('../../common');
@@ -23088,13 +22842,14 @@ var LocalStoragePersister = (function () {
 }());
 
 module.exports = LocalStoragePersister;
-},{"../../common":58,"../../storages/LocalStore":93,"./BasePersister":79,"util":6}],82:[function(require,module,exports){
+},{"../../common":59,"../../storages/LocalStore":96,"./BasePersister":80,"util":6}],83:[function(require,module,exports){
 var buildPromise = require('../utils').buildPromise;
 var EverliveError = require('../EverliveError').EverliveError;
 var Platform = require('../constants').Platform;
 var common = require('../common');
 var jstz = common.jstz;
 var _ = common._;
+var utils = require('../utils');
 
 module.exports = (function () {
     /**
@@ -23107,7 +22862,7 @@ module.exports = (function () {
     var CurrentDevice = function (pushHandler) {
 
         if (!window.cordova) {
-                throw new EverliveError('Error: currentDevice() can only be called from within a hybrid mobile app, after \'deviceready\' event has been fired.');
+            throw new EverliveError('Error: currentDevice() can only be called from within a hybrid mobile app, after \'deviceready\' event has been fired.');
         }
 
         this._pushHandler = pushHandler;
@@ -23125,14 +22880,13 @@ module.exports = (function () {
         this.emulatorMode = false;
     };
 
-    CurrentDevice.ensurePushIsAvailable = function() {
+    CurrentDevice.ensurePushIsAvailable = function () {
         var isPushNotificationPluginAvailable = (typeof window !== 'undefined' && window.plugins && window.plugins.pushNotification);
 
-        if (!isPushNotificationPluginAvailable) {
-            throw new EverliveError("The push notification plugin is not available. Ensure that the pushNotification plugin is included " +
-            "and use after `deviceready` event has been fired.");
+        if (!isPushNotificationPluginAvailable && !utils._inAppBuilderSimulator()) {
+            throw new EverliveError('The push notification plugin is not available. Ensure that the pushNotification plugin is included ' +
+                'and use after `deviceready` event has been fired.');
         }
-
     };
 
     CurrentDevice.prototype = {
@@ -23346,6 +23100,27 @@ module.exports = (function () {
             return buildPromise(function (successCb, errorCb) {
                 pushNotification.areNotificationsEnabled(successCb, errorCb, options);
             }, onSuccess, onError);
+        },
+
+        /**
+         * Currently available only for iOS
+         * Use this method in case you are working with iOS interactive push notifications in background mode, including TextInput, or iOS silent push notifications
+         * Call it once you are done with processing your push notification in notificationCallbackIOS.
+         * @method notificationProcessed
+         * @name notificationProcessed
+         * @memberOf Push.prototype
+         */
+        /**
+         * Currently available only for iOS
+         * Use this method in case you are working with iOS interactive push notifications in background mode, including TextInput, or iOS silent push notifications
+         * Call it once you are done with processing your push notification in notificationCallbackIOS.
+         * @method notificationProcessed
+         * @name notificationProcessed
+         * @memberOf Push.prototype
+         */
+        notificationProcessed: function () {
+            var pushPlugin = window.plugins.pushNotification;
+            pushPlugin.notificationProcessed();
         },
 
         _initializeInteractivePush: function (iOSSettings, success, error) {
@@ -23749,7 +23524,7 @@ module.exports = (function () {
     return CurrentDevice;
 }());
 
-},{"../EverliveError":47,"../common":58,"../constants":59,"../utils":99}],83:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"../utils":102}],84:[function(require,module,exports){
 var platform = require('../everlive.platform');
 var _ = require('../common')._;
 
@@ -23764,7 +23539,7 @@ if (platform.isNativeScript) {
 } else {
     module.exports = _.noop;
 }
-},{"../common":58,"../everlive.platform":61,"./CordovaCurrentDevice":82,"./NativeScriptCurrentDevice":84}],84:[function(require,module,exports){
+},{"../common":59,"../everlive.platform":62,"./CordovaCurrentDevice":83,"./NativeScriptCurrentDevice":85}],85:[function(require,module,exports){
 var buildPromise = require('../utils').buildPromise;
 var EverliveError = require('../EverliveError').EverliveError;
 var Platform = require('../constants').Platform;
@@ -24251,6 +24026,10 @@ module.exports = (function () {
             this._deviceRegistrationFailed(error);
         },
 
+        notificationProcessed: function () {
+            throw new Error('Not implemented');
+        },
+
         //This function receives all notification events from APN
         _onNotificationAPN: function (e) {
             this._raiseNotificationEventIOS(e);
@@ -24295,18 +24074,151 @@ module.exports = (function () {
     return CurrentDevice;
 }());
 
-},{"../EverliveError":47,"../common":58,"../constants":59,"../utils":99,"platform":"platform"}],85:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../constants":60,"../utils":102,"platform":"platform"}],86:[function(require,module,exports){
+var _ = require('../common')._;
+var Query = require('./Query');
+var util = require('util');
+var EverliveError = require('../EverliveError').EverliveError;
+
+/**
+ * @class AggregateQuery
+ * @classdesc A query class used to describe a aggregation request that will be made to the {{site.TelerikBackendServices}} JavaScript API. Inherits from Query.
+ */
+var AggregateQuery = function () {
+    Query.apply(this, arguments);
+    this.aggregateExpression = {'GroupBy': [], 'Aggregate': {}};
+
+    // the aggregate expression will be the last argument when initializing the query
+    var aggregateExpression = arguments[6];
+    var groupBy;
+    var aggregate;
+    if (aggregateExpression) {
+        groupBy = aggregateExpression.GroupBy;
+        aggregate = aggregateExpression.Aggregate;
+    }
+
+    this.aggregateExpression = {'GroupBy': groupBy || [], 'Aggregate': aggregate || {}};
+};
+
+util.inherits(AggregateQuery, Query);
+
+// wrapper formatter to all aggregate functions, like min/max/sum/average/count
+AggregateQuery.prototype._aggregateFunc = function _aggregateFunc(funcName, fieldName, destName) {
+    if (typeof fieldName !== 'string' && funcName !== 'count' ) {
+        throw new EverliveError(funcName + '() accepts only string as parameter.');
+    }
+    var aggregationObj = {};
+    aggregationObj[funcName] = fieldName;
+    this.aggregateExpression.Aggregate[destName || fieldName] = aggregationObj;
+    return this;
+};
+
+/** Applies a groupBy to the current query. This allows you to group results by
+ * @memberOf AggregateQuery.prototype
+ * @method groupBy
+ * @name groupBy
+ * @param {String} field to group by
+ * @param {Array} array of strings with fields to group by
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.groupBy = function (data) {
+    if (_.isArray(data)) {
+        Array.prototype.push.apply(this.aggregateExpression.GroupBy, data);
+    } else {
+        if (typeof data === 'string') {
+            this.aggregateExpression.GroupBy.push(data);
+        } else {
+            throw new EverliveError('groupBy() accepts only array or string as parameter.');
+        }
+    }
+    return this;
+};
+/** Adds aggregation function 'avg' (average) to the current query. Could set [resultFieldName]
+ * @memberOf AggregateQuery.prototype
+ * @method avg
+ * @name avg
+ * @param {String} field to apply aggregate function on
+ * @param {String} [resultFieldName] (Optional) Name of resulting field
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.avg = function () {
+    Array.prototype.unshift.call(arguments, 'avg');
+    return this._aggregateFunc.apply(this, arguments);
+};
+
+/** Adds aggregation function 'count' to the current query. Could set [resultFieldName]
+ * @memberOf AggregateQuery.prototype
+ * @method count
+ * @name count
+ * @param {String} field to apply aggregate function on
+ * @param {String} [resultFieldName] (Optional) Name of resulting field
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.count = function (resultFieldName) {
+    return this._aggregateFunc('count', null, resultFieldName || 'Count');
+};
+
+/** Adds aggregation function 'max' to the current query. Could set [resultFieldName]
+ * @memberOf AggregateQuery.prototype
+ * @method max
+ * @name max
+ * @param {String} field to apply aggregate function on
+ * @param {String} [resultFieldName] (Optional) Name of resulting field
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.max = function () {
+    Array.prototype.unshift.call(arguments, 'max');
+    return this._aggregateFunc.apply(this, arguments);
+};
+
+/** Adds aggregation function 'min' to the current query. Could set [resultFieldName]
+ * @memberOf AggregateQuery.prototype
+ * @method min
+ * @name min
+ * @param {String} field to apply aggregate function on
+ * @param {String} [resultFieldName] (Optional) Name of resulting field
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.min = function () {
+    Array.prototype.unshift.call(arguments, 'min');
+    return this._aggregateFunc.apply(this, arguments);
+};
+
+/** Adds aggregation function 'sum' to the current query. Could set [resultFieldName]
+ * @memberOf AggregateQuery.prototype
+ * @method sum
+ * @name sum
+ * @param {String} field to apply aggregate function on
+ * @param {String} [resultFieldName] (Optional) Name of resulting field
+ * @returns {AggregateQuery}
+ */
+AggregateQuery.prototype.sum = function () {
+    Array.prototype.unshift.call(arguments, 'sum');
+    return this._aggregateFunc.apply(this, arguments);
+};
+
+AggregateQuery.prototype.select = undefined;
+AggregateQuery.prototype.skip  = undefined;
+AggregateQuery.prototype.take = undefined;
+AggregateQuery.prototype.order = undefined;
+
+AggregateQuery.prototype.average = AggregateQuery.prototype.avg;
+
+module.exports = AggregateQuery;
+
+},{"../EverliveError":48,"../common":59,"./Query":89,"util":6}],87:[function(require,module,exports){
 var _ = require('../common')._;
 var constants = require('../constants');
 var Query = require('../query/Query');
 var Headers = constants.Headers;
+var utils = require('../utils');
 
 module.exports = (function () {
     // TODO: [offline] Update the structure - filter field can be refactored for example and a skip/limit/sort property can be added
     var DataQuery = function (config) {
         this.collectionName = config.collectionName;
         this.headers = config.headers || {};
-        this.filter = config.filter;
+        this.query = config.query;
         this.onSuccess = config.onSuccess;
         this.onError = config.onError;
         this.operation = config.operation;
@@ -24319,35 +24231,37 @@ module.exports = (function () {
         this.skipAuth = config.skipAuth; //if set to true, the sdk will not require authorization if the data query fails because of expired token. Used internally for various login methods.
         this._normalizedHeaders = null;
         this.isSync = config.isSync;
+
+        // TODO remove code below later, when we decide best strategy for queries
+        if (!config.query && config.filter && !_.isEmpty(config.filter)){
+            if (config.filter instanceof Query) {
+                this.query = config.filter;
+            } else {
+                this.query = new Query(config.filter);
+            }
+        }
     };
 
     DataQuery.prototype = {
         _normalizeHeaders: function () {
-            var self = this;
-            var headerKeys = Object.keys(this.headers);
-
-            this._normalizedHeaders = {};
-            _.each(headerKeys, function (headerKey) {
-                var normalizedKey = headerKey.toLowerCase();
-                self._normalizedHeaders[normalizedKey] = self.headers[headerKey];
-            });
+            this._normalizedHeaders = utils.normalizeKeys(this.headers);
         },
 
         getHeader: function (header) {
-            if (!this._normalizedHeaders) {
-                this._normalizeHeaders();
-            }
+            this._normalizeHeaders();
 
             var normalizedHeader = header.toLowerCase();
             return this._normalizedHeaders[normalizedHeader];
         },
 
         getHeaderAsJSON: function (header) {
-            if (!this._normalizedHeaders) {
-                this._normalizeHeaders();
+            this._normalizeHeaders();
+
+            var headerValue;
+            if (header) {
+                headerValue = this._normalizedHeaders[header.toLowerCase()];
             }
 
-            var headerValue = this._normalizedHeaders[header.toLowerCase()];
             if (_.isObject(headerValue)) {
                 return headerValue;
             }
@@ -24362,68 +24276,286 @@ module.exports = (function () {
             }
         },
 
+        getHeaders: function () {
+            this._normalizeHeaders();
+            var headers = _.deepExtend(this._normalizedHeaders);
+            return headers;
+        },
+
         getQueryParameters: function () {
             var queryParams = {};
 
-            if (this.operation === DataQuery.operations.readById) {
-                queryParams.filter = this.additionalOptions.id;
+            if (this.operation === DataQuery.operations.ReadById) {
                 queryParams.expand = this.getHeaderAsJSON(Headers.expand);
-            } else {
+                queryParams.select = this.getHeaderAsJSON(Headers.select);
+            } else if (!this.additionalOptions || this.additionalOptions.id === undefined) {
                 var sort = this.getHeaderAsJSON(Headers.sort);
                 var limit = this.getHeaderAsJSON(Headers.take);
                 var skip = this.getHeaderAsJSON(Headers.skip);
                 var select = this.getHeaderAsJSON(Headers.select);
                 var filter = this.getHeaderAsJSON(Headers.filter);
                 var expand = this.getHeaderAsJSON(Headers.expand);
+                var aggregate = this.getHeaderAsJSON(Headers.aggregate);
 
-                if (this.filter instanceof Query) {
-                    var filterObj = this.filter.build();
+                if (this.query instanceof Query) {
+                    var filterObj = this.query.build();
                     queryParams.filter = filterObj.$where || filter || {};
                     queryParams.sort = filterObj.$sort || sort;
                     queryParams.limit = filterObj.$take || limit;
                     queryParams.skip = filterObj.$skip || skip;
                     queryParams.select = filterObj.$select || select;
                     queryParams.expand = filterObj.$expand || expand;
+                    queryParams.aggregate = filterObj.$aggregate || aggregate;
                 } else {
+                    // TODO left for backward compatibility, should be removed later
                     queryParams.filter = (this.filter || filter) || {};
                     queryParams.sort = sort;
                     queryParams.limit = limit;
                     queryParams.skip = skip;
                     queryParams.select = select;
                     queryParams.expand = expand;
+                    queryParams.aggregate = aggregate;
                 }
             }
 
             return queryParams;
+        },
+
+        applyEventQuery: function (eventQuery) {
+            this._applyCustomHeaders(eventQuery);
+            this._applyEventQueryHeaders(eventQuery);
+            this._applyEventQueryParams(eventQuery);
+            this.additionalOptions = this.additionalOptions || {};
+            this.additionalOptions.id = eventQuery.itemId;
+            this.data = eventQuery.data;
+            this._applyEventQuerySettings(eventQuery);
+        },
+
+        _applyCustomHeaders: function (eventQuery) {
+            this.headers = eventQuery.headers;
+            this._normalizeHeaders();
+        },
+
+        _applyEventQueryHeaders: function (eventQuery) {
+            this._applyEventHeader(Headers.filter, eventQuery.filter);
+            this._applyEventHeader(Headers.select, eventQuery.fields);
+            this._applyEventHeader(Headers.sort, eventQuery.sort);
+            this._applyEventHeader(Headers.skip, eventQuery.skip);
+            this._applyEventHeader(Headers.take, eventQuery.take);
+            this._applyEventHeader(Headers.expand, eventQuery.expand);
+            this._applyEventHeader(Headers.aggregate, eventQuery.aggregate);
+            this._applyEventHeader(Headers.powerFields, eventQuery.powerfields);
+        },
+
+        _applyEventQueryParams: function (eventQuery) {
+            if (eventQuery.filter) {
+                this.query = this.query || {};
+                this.query.filter = eventQuery.filter;
+            }
+
+            if (eventQuery.aggregate) {
+                this.query = this.query || {};
+                this.query.aggregateExpression = eventQuery.aggregate;
+            }
+
+            this.fields = eventQuery.select;
+            this.sort = eventQuery.sort;
+            this.skip = eventQuery.skip;
+            this.take = eventQuery.take;
+            this.expand = eventQuery.expand;
+        },
+
+        _applyEventQuerySettings: function (eventQuery) {
+            this.useOffline = eventQuery.settings.useOffline;
+            this.forceCache = eventQuery.settings.forceCache;
+            this.ignoreCache = eventQuery.settings.ignoreCache;
+            this.applyOffline = eventQuery.settings.applyOffline;
+        },
+
+        _applyEventHeader: function (header, value) {
+            if (value && typeof value !== 'string') {
+                var headerToLower = header.toLowerCase();
+                this.headers[headerToLower] = JSON.stringify(value);
+            }
         }
     };
 
-    DataQuery.operations = {
-        read: 'read',
-        create: 'create',
-        update: 'update',
-        remove: 'destroy',
-        removeSingle: 'destroySingle',
-        readById: 'readById',
-        count: 'count',
-        rawUpdate: 'rawUpdate',
-        setAcl: 'setAcl',
-        setOwner: 'setOwner',
-        userLogin: 'login',
-        userLogout: 'logout',
-        userChangePassword: 'changePassword',
-        userLoginWithProvider: 'loginWith',
-        userLinkWithProvider: 'linkWith',
-        userUnlinkFromProvider: 'unlinkFrom',
-        userResetPassword: 'resetPassword',
-        userSetPassword: 'setPassword',
-        filesUpdateContent: 'updateContent',
-        filesGetDownloadUrlById: 'downloadUrlById'
-    };
+    DataQuery.operations = constants.DataQueryOperations;
 
     return DataQuery;
 }());
-},{"../common":58,"../constants":59,"../query/Query":86}],86:[function(require,module,exports){
+},{"../common":59,"../constants":60,"../query/Query":89,"../utils":102}],88:[function(require,module,exports){
+'use strict';
+
+var constants = require('../constants');
+
+/**
+ * @class EventQuery
+ * @classdesc A query which is passed in the 'beforeExecute' event of [Everlive]{@link Everlive}. Allows changing the parameters of
+ * a query before executing it.
+ */
+var EventQuery = function () {
+};
+
+/** The name of the content type, e.g. EmailSubcrbers.
+ * @memberOf EventQuery.prototype
+ * @member {string} contentTypeName
+ */
+
+/** The query data which will be send to the server.
+ * @memberOf EventQuery.prototype
+ * @member {Object} data
+ */
+
+/** The query headers which will be send with the HTTP request.
+ * @memberOf EventQuery.prototype
+ * @member {Object} headers
+ */
+
+/** The Id of the item.
+ * @memberOf EventQuery.prototype
+ * @member {string} itemId
+ */
+
+/** The type of the operation--read, write, update, delete.
+ * @memberOf EventQuery.prototype
+ * @member {string} operation
+ */
+
+/** A power fields expression.
+ * @memberOf EventQuery.prototype
+ * @member {string} powerfields
+ * @deprecated
+ */
+
+/** A custom settings object.
+ * @memberOf EventQuery.prototype
+ * @member {string} settings
+ */
+
+/** A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
+ * @memberOf EventQuery.prototype
+ * @member {Object} filter
+ */
+
+/** A [fields expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-subset-fields) definition.
+ * @memberOf EventQuery.prototype
+ * @member {Object} fields
+ */
+
+/** A [sort expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-sorting) definition.
+ * @memberOf EventQuery.prototype
+ * @member {Object} sort
+ */
+
+/** The number of result items to skip. Used for paging.
+ * @memberOf EventQuery.prototype
+ * @member {Number} skip
+ */
+
+/** The number of result items to take. Used for paging.
+ * @memberOf EventQuery.prototype
+ * @member {Number} take
+ */
+
+/** An [expand expression](http://docs.telerik.com/platform/backend-services/javascript/data/relations/relations-defining) definition.
+ * @memberOf EventQuery.prototype
+ * @member {Object} expand
+ */
+
+/** Indicates whether the query is a synchronization query. Used with Offline Support.
+ * @memberOf EventQuery.prototype
+ * @member {boolean} isSync
+ * @readonly
+ */
+
+function applyDataQueryParameters(eventQuery, dataQuery) {
+    var queryParameters = dataQuery.getQueryParameters();
+    eventQuery.filter = queryParameters.filter;
+    eventQuery.fields = queryParameters.select;
+    eventQuery.sort = queryParameters.sort;
+    eventQuery.skip = queryParameters.skip;
+    eventQuery.take = queryParameters.limit || queryParameters.take;
+    eventQuery.expand = queryParameters.expand;
+    eventQuery.aggregate = queryParameters.aggregate;
+    return queryParameters;
+}
+
+/** An object allowing to modify the settings of the EventQuery.
+ * @memberOf EventQuery.prototype
+ * @member {Object} settings
+ * @property {boolean} useOffline - Modifies whether the query should be invoked on the offline storage.
+ * @property {boolean} applyOffline - Modifies whether the query should be applied offline if the SDK is currently working online. Default is true. Only valid when offlineStorage is enabled.
+ * @property {boolean} ignoreCache - Does not use the cache when retrieving the data. Only valid when caching is enabled.
+ * @property {boolean} forceCache - Forces the request to get the data from the cache even if the data is already expired. Only valid when caching is enabled.
+ */
+
+function applyDataQuerySettings(eventQuery, dataQuery) {
+    eventQuery.settings = {
+        useOffline: dataQuery.useOffline,
+        applyOffline: dataQuery.applyOffline,
+        ignoreCache: dataQuery.ignoreCache,
+        forceCache: dataQuery.forceCache
+    };
+}
+
+EventQuery.fromDataQuery = function (dataQuery) {
+    var eventQuery = new EventQuery();
+    eventQuery.contentTypeName = dataQuery.collectionName;
+    if (dataQuery.additionalOptions && dataQuery.additionalOptions.id) {
+        switch (dataQuery.operation) {
+            case constants.DataQueryOperations.Update:
+                eventQuery.operation = constants.DataQueryOperations.UpdateById;
+                break;
+            case constants.DataQueryOperations.Delete:
+                eventQuery.operation = constants.DataQueryOperations.DeleteById;
+                break;
+            default:
+                eventQuery.operation = dataQuery.operation;
+        }
+    } else {
+        eventQuery.operation = dataQuery.operation;
+    }
+
+    eventQuery.itemId = dataQuery.additionalOptions ? dataQuery.additionalOptions.id : undefined;
+    eventQuery.data = dataQuery.data;
+
+    applyDataQuerySettings(eventQuery, dataQuery);
+    applyDataQueryParameters(eventQuery, dataQuery);
+    eventQuery.headers = dataQuery.getHeaders();
+    var powerFieldsHeader = eventQuery.headers[constants.Headers.powerFields];
+    if (typeof powerFieldsHeader === 'string') {
+        eventQuery.powerfields = JSON.parse(powerFieldsHeader);
+    }
+    eventQuery.isSync = dataQuery.isSync; // readonly
+
+    return eventQuery;
+};
+
+/**
+ * Cancels the query.
+ * @memberOf EventQuery.prototype
+ * @method cancel
+ */
+
+/**
+ * Indicates whether the query has been canceled.
+ * @memberOf EventQuery.prototype
+ * @method isCanceled
+ * @returns {boolean}
+ */
+
+EventQuery.prototype = {
+    cancel: function () {
+        this._cancelled = true;
+    },
+    isCancelled: function () {
+        return this._cancelled;
+    }
+};
+
+module.exports = EventQuery;
+},{"../constants":60}],89:[function(require,module,exports){
 var Expression = require('../Expression');
 var OperatorType = require('../constants').OperatorType;
 var WhereQuery = require('./WhereQuery');
@@ -24433,12 +24565,12 @@ module.exports = (function () {
     /**
      * @class Query
      * @classdesc A query class used to describe a request that will be made to the {{site.TelerikBackendServices}} JavaScript API.
-     * @param {object} [filter] A [filter expression]({% slug rest-api-querying-filtering %}) definition.
-     * @param {object} [fields] A [fields expression]({% slug rest-api-querying-Subset-of-fields %}) definition.
-     * @param {object} [sort] A [sort expression]({% slug rest-api-querying-sorting %}) definition.
+     * @param {object} [filter] A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
+     * @param {object} [fields] A [fields expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-subset-fields) definition.
+     * @param {object} [sort] A [sort expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-sorting) definition.
      * @param {number} [skip] Number of items to skip. Used for paging.
      * @param {number} [take] Number of items to take. Used for paging.
-     * @param {object} [expand] An [expand expression]({% slug features-data-relations-defining-expand %}) definition.
+     * @param {object} [expand] An [expand expression](http://docs.telerik.com/platform/backend-services/rest/data/relations/relations-defining) definition.
      */
     function Query(filter, fields, sort, skip, take, expand) {
         this.filter = filter;
@@ -24455,7 +24587,7 @@ module.exports = (function () {
          * @memberOf Query.prototype
          * @method where
          * @name where
-         * @param {object} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Query}
          */
         /** Defines a filter definition for the current query.
@@ -24475,7 +24607,7 @@ module.exports = (function () {
         /** Applies a fields selection to the current query. This allows you to retrieve only a subset of all available item fields.
          * @memberOf Query.prototype
          * @method select
-         * @param {object} fieldsExpression A [fields expression]({% slug rest-api-querying-Subset-of-fields %}) definition.
+         * @param {object} fieldsExpression A [fields expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-subset-fields) definition.
          * @returns {Query}
          */
         select: function () {
@@ -24526,7 +24658,7 @@ module.exports = (function () {
         /** Sets an expand expression for the current query. This allows you to retrieve complex data sets using a single query based on relations between data types.
          * @memberOf Query.prototype
          * @method expand
-         * @param {object} expandExpression An [expand expression]({% slug features-data-relations-defining-expand %}) definition.
+         * @param {object} expandExpression An [expand expression](http://docs.telerik.com/platform/backend-services/rest/data/relations/relations-defining) definition.
          * @returns {Query}
          */
         expand: function (expandExpression) {
@@ -24549,7 +24681,7 @@ module.exports = (function () {
 
     return Query;
 }());
-},{"../Expression":49,"../constants":59,"./QueryBuilder":87,"./WhereQuery":89}],87:[function(require,module,exports){
+},{"../Expression":50,"../constants":60,"./QueryBuilder":90,"./WhereQuery":92}],90:[function(require,module,exports){
 var constants = require('../constants');
 var OperatorType = constants.OperatorType;
 var _ = require('../common')._;
@@ -24569,14 +24701,15 @@ module.exports = (function () {
         // TODO merge the two objects before returning them
         build: function () {
             var query = this.query;
-            if (query.filter || query.fields || query.sort || query.toskip || query.totake || query.expandExpression) {
+            if (query.filter || query.fields || query.sort || query.toskip || query.totake || query.expandExpression){ // || query.aggregateExpression) {
                 return {
                     $where: query.filter || null,
                     $select: query.fields || null,
                     $sort: query.sort || null,
                     $skip: query.toskip || null,
                     $take: query.totake || null,
-                    $expand: query.expandExpression || null
+                    $expand: query.expandExpression || null,
+                    $aggregate: query.aggregateExpression || null
                 };
             }
             return {
@@ -24585,7 +24718,8 @@ module.exports = (function () {
                 $sort: this._buildSort(),
                 $skip: this._getSkip(),
                 $take: this._getTake(),
-                $expand: this._getExpand()
+                $expand: this._getExpand(),
+                $aggregate: this._getAggregate()
             };
         },
         _getSkip: function () {
@@ -24610,6 +24744,22 @@ module.exports = (function () {
                 }, {})
                 .value();
             return _.isEmpty(expandExpression) ? null : expandExpression;
+        },
+        _getAggregate: function () {
+            if (!this.query.aggregateExpression) {
+                return null;
+            }
+
+            // build $aggregate, delete empty aggregates, fail no aggregates at all
+            var aggregates = _.extend({}, this.query.aggregateExpression);
+            if (_.isEmpty(aggregates.GroupBy)) {
+                delete aggregates.GroupBy;
+            }
+            if (_.isEmpty(aggregates.Aggregate)) {
+                delete aggregates.Aggregate;
+            }
+
+            return aggregates;
         },
         _buildSelect: function () {
             var selectExpression = _.find(this.expr.operands, function (value, index, list) {
@@ -24899,18 +25049,25 @@ module.exports = (function () {
 
     return QueryBuilder;
 }());
-},{"../EverliveError":47,"../Expression":49,"../GeoPoint":50,"../common":58,"../constants":59}],88:[function(require,module,exports){
+},{"../EverliveError":48,"../Expression":50,"../GeoPoint":51,"../common":59,"../constants":60}],91:[function(require,module,exports){
 var DataQuery = require('./DataQuery');
 var Request = require('../Request');
 var _ = require('../common')._;
+var constants = require('../constants');
+var path = require('path');
 
 module.exports = (function () {
     var RequestOptionsBuilder = {};
 
     RequestOptionsBuilder._buildEndpointUrl = function (dataQuery) {
         var endpoint = dataQuery.collectionName;
-        if (dataQuery.additionalOptions && dataQuery.additionalOptions.id) {
-            endpoint += '/' + dataQuery.additionalOptions.id;
+        var isQueryById = dataQuery.additionalOptions && dataQuery.additionalOptions.id !== undefined;
+        var queryType = typeof dataQuery.query;
+
+        if (isQueryById) {
+            endpoint = path.join(endpoint, dataQuery.additionalOptions.id.toString());
+        } else if (queryType === 'string' || queryType === 'number') {
+            endpoint = path.join(endpoint, dataQuery.query);
         }
 
         return endpoint;
@@ -24919,7 +25076,7 @@ module.exports = (function () {
     RequestOptionsBuilder._buildBaseObject = function (dataQuery) {
         var defaultObject = {
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery),
-            filter: dataQuery.filter,
+            query: dataQuery.query,
             success: dataQuery.onSuccess,
             error: dataQuery.onError,
             data: dataQuery.data,
@@ -24934,108 +25091,87 @@ module.exports = (function () {
     };
 
     RequestOptionsBuilder._build = function (dataQuery, additionalOptions) {
-        return _.extend(RequestOptionsBuilder._buildBaseObject(dataQuery), additionalOptions);
+        var options = _.extend(RequestOptionsBuilder._buildBaseObject(dataQuery), additionalOptions);
+
+        if (additionalOptions.endpointSupplement) {
+            options.endpoint = path.join(options.endpoint, additionalOptions.endpointSupplement);
+        }
+
+        return options;
     };
 
-    RequestOptionsBuilder[DataQuery.operations.read] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.Read] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'GET'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.readById] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.ReadById] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'GET'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.count] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.Count] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'GET',
             endpoint: dataQuery.collectionName + '/_count'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.create] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.Create] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.rawUpdate] = function (dataQuery) {
-        var endpoint = dataQuery.collectionName;
-        var filter = dataQuery.filter;
-        var ofilter = null; // request options filter
-
-        if (typeof filter === 'string') {
-            endpoint += '/' + filter; // send the filter through query string
-        } else if (typeof filter === 'object') {
-            ofilter = filter; // send the filter as filter headers
-        }
+    RequestOptionsBuilder[DataQuery.operations.RawUpdate] = function (dataQuery) {
+        var query = dataQuery.query;
+        var ofilter = typeof query === 'object' ? query : null; // request options filter
 
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'PUT',
-            endpoint: endpoint,
-            filter: ofilter
+            query: ofilter
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.update] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.Update] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'PUT'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.remove] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.Delete] = function (dataQuery) {
         return _.extend(RequestOptionsBuilder._buildBaseObject(dataQuery), {
             method: 'DELETE'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.removeSingle] = RequestOptionsBuilder[DataQuery.operations.remove];
+    RequestOptionsBuilder[DataQuery.operations.DeleteById] = RequestOptionsBuilder[DataQuery.operations.Delete];
 
-    RequestOptionsBuilder[DataQuery.operations.setAcl] = function (dataQuery) {
-        var endpoint = dataQuery.collectionName;
-        var filter = dataQuery.filter;
-
-        if (typeof filter === 'string') { // if filter is string than will update a single item using the filter as an identifier
-            endpoint += '/' + filter;
-        } else if (typeof filter === 'object') { // else if it is an object than we will use it's id property
-            endpoint += '/' + filter[idField];
-        }
-        endpoint += '/_acl';
-        var method, data;
-        if (dataQuery.additionalOptions.acl === null) {
+    RequestOptionsBuilder[DataQuery.operations.SetAcl] = function (dataQuery) {
+        var method;
+        if (dataQuery.data === null) {
             method = 'DELETE';
+            dataQuery.data = undefined;
         } else {
             method = 'PUT';
-            data = dataQuery.additionalOptions.acl;
         }
 
         return RequestOptionsBuilder._build(dataQuery, {
             method: method,
-            endpoint: endpoint,
-            data: data
+            endpointSupplement: '/_acl'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.setOwner] = function (dataQuery) {
-        var endpoint = dataQuery.collectionName;
-        var filter = dataQuery.filter;
-        if (typeof filter === 'string') { // if filter is string than will update a single item using the filter as an identifier
-            endpoint += '/' + filter;
-        } else if (typeof filter === 'object') { // else if it is an object than we will use it's id property
-            endpoint += '/' + filter[idField];
-        }
-        endpoint += '/_owner';
-
+    RequestOptionsBuilder[DataQuery.operations.SetOwner] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'PUT',
-            endpoint: endpoint
+            endpointSupplement: '/_owner'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userLogin] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserLogin] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: 'oauth/token',
@@ -25044,14 +25180,14 @@ module.exports = (function () {
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userLogout] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserLogout] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'GET',
             endpoint: 'oauth/logout'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userChangePassword] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserChangePassword] = function (dataQuery) {
         var keepTokens = dataQuery.additionalOptions.keepTokens;
         var endpoint = 'Users/changepassword';
         if (keepTokens) {
@@ -25061,62 +25197,68 @@ module.exports = (function () {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: endpoint,
-            authHeaders: false,
             parse: Request.parsers.single
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userLoginWithProvider] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserLoginWithProvider] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             authHeaders: false
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userLinkWithProvider] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserLinkWithProvider] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery) + '/link'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userUnlinkFromProvider] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserUnlinkFromProvider] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery) + '/unlink'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userResetPassword] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserResetPassword] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery) + '/resetpassword'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.userSetPassword] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.UserSetPassword] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'POST',
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery) + '/setpassword'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.filesUpdateContent] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.FilesUpdateContent] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'PUT',
             endpoint: RequestOptionsBuilder._buildEndpointUrl(dataQuery) + '/Content'
         });
     };
 
-    RequestOptionsBuilder[DataQuery.operations.filesGetDownloadUrlById] = function (dataQuery) {
+    RequestOptionsBuilder[DataQuery.operations.FilesGetDownloadUrlById] = function (dataQuery) {
         return RequestOptionsBuilder._build(dataQuery, {
             method: 'GET'
         });
     };
 
+    RequestOptionsBuilder[DataQuery.operations.Aggregate] = function (dataQuery) {
+        return RequestOptionsBuilder._build(dataQuery, {
+            method: 'GET',
+            endpoint: dataQuery.collectionName + '/_aggregate'
+        });
+    };
+
     return RequestOptionsBuilder;
 }());
-},{"../Request":52,"../common":58,"./DataQuery":85}],89:[function(require,module,exports){
+},{"../Request":53,"../common":59,"../constants":60,"./DataQuery":87,"path":3}],92:[function(require,module,exports){
 var Expression = require('../Expression');
 var OperatorType = require('../constants').OperatorType;
 
@@ -25288,7 +25430,7 @@ module.exports = (function () {
          * @memberOf WhereQuery.prototype
          * @param {string} field Field name.
          * @param {string} regularExpression Regular expression in PCRE format.
-         * @param {string} [options] A string of regex options to use. See [specs]({http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options}) for a description of available options.
+         * @param {string} [options] A string of regex options to use. See [specs](http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options) for a description of available options.
          * @returns {WhereQuery}
          */
         regex: function (field, value, flags) {
@@ -25300,7 +25442,7 @@ module.exports = (function () {
          * @memberOf WhereQuery.prototype
          * @param {string} field Field name.
          * @param {string} value The string that the field should start with.
-         * @param {string} [options] A string of regex options to use. See [specs]({http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options}) for a description of available options.
+         * @param {string} [options] A string of regex options to use. See [specs](http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options) for a description of available options.
          * @returns {WhereQuery}
          */
         startsWith: function (field, value, flags) {
@@ -25312,7 +25454,7 @@ module.exports = (function () {
          * @memberOf WhereQuery.prototype
          * @param {string} field Field name.
          * @param {string} value The string that the field should end with.
-         * @param {string} [options] A string of  regex options to use. See [specs]({http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options}) for a description of available options.
+         * @param {string} [options] A string of  regex options to use. See [specs](http://docs.mongodb.org/manual/reference/operator/query/regex/#op._S_options) for a description of available options.
          * @returns {WhereQuery}
          */
         endsWith: function (field, value, flags) {
@@ -25412,7 +25554,7 @@ module.exports = (function () {
 
     return WhereQuery;
 }());
-},{"../Expression":49,"../constants":59}],90:[function(require,module,exports){
+},{"../Expression":50,"../constants":60}],93:[function(require,module,exports){
 var http = require('http');
 module.exports = (function () {
     'use strict';
@@ -25462,7 +25604,7 @@ module.exports = (function () {
 
     return reqwest;
 }());
-},{"http":"http"}],91:[function(require,module,exports){
+},{"http":"http"}],94:[function(require,module,exports){
 (function (Buffer){
 var url = require('url');
 var http = require('http');
@@ -25557,7 +25699,7 @@ module.exports = (function () {
 }());
 }).call(this,require("buffer").Buffer)
 
-},{"buffer":"buffer","http":"http","https":"https","rsvp":34,"underscore":35,"url":"url","zlib":"zlib"}],92:[function(require,module,exports){
+},{"buffer":"buffer","http":"http","https":"https","rsvp":34,"underscore":35,"url":"url","zlib":"zlib"}],95:[function(require,module,exports){
 var platform = require('../everlive.platform');
 var WebFileStore = require('./WebFileStore');
 var NativeScriptFileStore = require('./NativeScriptFileStore');
@@ -25572,7 +25714,7 @@ if (platform.isNativeScript) {
 } else {
     module.exports = _.noop;
 }
-},{"../common":58,"../everlive.platform":61,"./NativeScriptFileStore":94,"./WebFileStore":95}],93:[function(require,module,exports){
+},{"../common":59,"../everlive.platform":62,"./NativeScriptFileStore":97,"./WebFileStore":98}],96:[function(require,module,exports){
 var platform = require('./../everlive.platform.js');
 var isNativeScript = platform.isNativeScript;
 var isNodejs = platform.isNodejs;
@@ -25651,7 +25793,7 @@ module.exports = (function () {
 
     return LocalStore;
 }());
-},{"./../constants":59,"./../everlive.platform.js":61,"application-settings":"application-settings","local-settings":"local-settings","node-localstorage":"node-localstorage"}],94:[function(require,module,exports){
+},{"./../constants":60,"./../everlive.platform.js":62,"application-settings":"application-settings","local-settings":"local-settings","node-localstorage":"node-localstorage"}],97:[function(require,module,exports){
 'use strict';
 
 var common = require('../common');
@@ -25772,12 +25914,13 @@ NativeScriptFileStore.prototype = {
 };
 
 module.exports = NativeScriptFileStore;
-},{"../common":58,"../utils":99,"file-system":"file-system"}],95:[function(require,module,exports){
+},{"../common":59,"../utils":102,"file-system":"file-system"}],98:[function(require,module,exports){
 'use strict';
 
 var EverliveError = require('../EverliveError').EverliveError;
 var common = require('../common');
 var rsvp = common.rsvp;
+var _ = common._;
 var utils = require('../utils');
 var platform = require('../everlive.platform');
 var path = require('path');
@@ -25793,7 +25936,7 @@ function WebFileStore(storagePath, options) {
 
     var filesDirectoryPath;
 
-    if (platform.isWindowsPhone) {
+    if (platform.isWindowsPhone || platform.isInAppBuilderSimulator()) {
         //windows phone does not handle leading or trailing slashes very well :(
         filesDirectoryPath = storagePath.replace(new RegExp('/', 'g'), '');
     } else {
@@ -26072,7 +26215,7 @@ WebFileStore.prototype = {
 };
 
 module.exports = WebFileStore;
-},{"../EverliveError":47,"../common":58,"../everlive.platform":61,"../utils":99,"path":3}],96:[function(require,module,exports){
+},{"../EverliveError":48,"../common":59,"../everlive.platform":62,"../utils":102,"path":3}],99:[function(require,module,exports){
 var buildPromise = require('../utils').buildPromise;
 var constants = require('../constants');
 var idField = constants.idField;
@@ -26083,9 +26226,25 @@ var Request = require('../Request');
 var Everlive = require('../Everlive');
 var EverliveError = require('../EverliveError').EverliveError;
 var EverliveErrors = require('../EverliveError').EverliveErrors;
-var everlivePlatform = require('../everlive.platform').platform;
+var EventQuery = require('../query/EventQuery');
+var platform = require('../everlive.platform');
+var everlivePlatform = platform.platform;
 var _ = require('../common')._;
 var utils = require('../utils');
+var Query = require('../query/Query');
+
+var beforeExecuteAllowedOperations = [
+    constants.DataQueryOperations.Count,
+    constants.DataQueryOperations.Read,
+    constants.DataQueryOperations.Create,
+    constants.DataQueryOperations.Update,
+    constants.DataQueryOperations.UpdateById,
+    constants.DataQueryOperations.Delete,
+    constants.DataQueryOperations.DeleteById,
+    constants.DataQueryOperations.ReadById,
+    constants.DataQueryOperations.Aggregate,
+    constants.DataQueryOperations.RawUpdate
+];
 
 module.exports = (function () {
     function mergeResultData(data, success) {
@@ -26096,8 +26255,7 @@ module.exports = (function () {
                 _.each(data, function (item, index) {
                     _.extend(item, attrs[index]);
                 });
-            }
-            else {
+            } else {
                 _.extend(data, attrs);
             }
 
@@ -26151,23 +26309,24 @@ module.exports = (function () {
             var autoSyncEnabled = this.offlineStorage && this.offlineStorage.setup.autoSync;
             if (autoSyncEnabled) {
                 switch (query.operation) {
-                    case DataQuery.operations.read:
-                    case DataQuery.operations.readById:
+                    case DataQuery.operations.Read:
+                    case DataQuery.operations.ReadById:
+                    case DataQuery.operations.FilesGetDownloadUrlById:
                         var syncReadQuery = new DataQuery(_.defaults({
                             data: requestResponse.result,
                             isSync: true,
-                            operation: DataQuery.operations.create
+                            operation: DataQuery.operations.Create
                         }, query));
                         return this.offlineStorage.processQuery(syncReadQuery);
-                    case DataQuery.operations.create:
+                    case DataQuery.operations.Create:
                         var createData = this._getOfflineCreateData(query, requestResponse);
                         var createQuery = new DataQuery(_.defaults({
                             data: createData,
                             isSync: true
                         }, query));
                         return this.offlineStorage.processQuery(createQuery);
-                    case DataQuery.operations.update:
-                    case DataQuery.operations.rawUpdate:
+                    case DataQuery.operations.Update:
+                    case DataQuery.operations.RawUpdate:
                         query.isSync = true;
                         query.ModifiedAt = requestResponse.ModifiedAt;
                         return this.offlineStorage.processQuery(query);
@@ -26191,16 +26350,22 @@ module.exports = (function () {
             }
             return this;
         },
+        _generateQueryFromFilter: function (filterOrQuery) {
+            if (filterOrQuery instanceof Query) {
+                return filterOrQuery;
+            } else {
+                return new Query(filterOrQuery);
+            }
+        },
 
-        /**
-         * @memberOf Data.prototype
-         * @method
+    /**
          * Modifies whether the query should be invoked on the offline storage.
-         * Default is true.
-         * Only valid when offlineStorage is enabled.
-         * @param useOffline
-         * @returns {Data}
-         * */
+         * @memberOf Data.prototype
+         * @method useOffline
+         * @name useOffline
+         * @param {boolean} [useOffline]
+         * @returns {Data} Returns the same instance of the Data object.
+         */
         useOffline: function (useOffline) {
             if (arguments.length !== 1) {
                 throw new Error('A single value is expected in useOffline() query modifier');
@@ -26209,11 +26374,11 @@ module.exports = (function () {
         },
 
         /**
-         * @memberOf Data.prototype
-         * @method
-         * @name ignoreCache
          * Does not use the cache when retrieving the data.
          * Only valid when caching is enabled.
+         * @memberOf Data.prototype
+         * @method ignoreCache
+         * @name ignoreCache
          * @returns {Data}
          * */
         ignoreCache: function () {
@@ -26221,11 +26386,11 @@ module.exports = (function () {
         },
 
         /**
-         * @memberOf Data.prototype
-         * @method
-         * @name forceCache
          * Forces the request to get the data from the cache even if the data is already expired.
          * Only valid when caching is enabled.
+         * @memberOf Data.prototype
+         * @method forceCache
+         * @name forceCache
          * @returns {Data}
          * */
         forceCache: function () {
@@ -26233,11 +26398,11 @@ module.exports = (function () {
         },
 
         /**
-         * @memberOf Data.prototype
-         * @method
-         * @name maxAge
-         * Sets cache expiration specifically for the current query
+         * Sets cache expiration specifically for the current query.
          * Only valid when caching is enabled.
+         * @memberOf Data.prototype
+         * @method maxAge
+         * @name maxAge
          * @param maxAgeInMinutes
          * @returns {Data}
          * */
@@ -26254,11 +26419,11 @@ module.exports = (function () {
         },
 
         /**
-         * @memberOf Data.prototype
-         * @method
-         * Modifies whether the query should invoke the {{@link Authentication.prototype.hasAuthenticationRequirement}}.
+         * Modifies whether the query should try to authenticate if the security token has expired.
          * Default is false.
-         * Only valid when authentication module has an onAuthenticationRequired function .
+         * Only valid when the authentication module has an onAuthenticationRequired function.
+         * @memberOf Data.prototype
+         * @method skipAuth
          * @param skipAuth
          * @returns {Data}
          * */
@@ -26274,7 +26439,7 @@ module.exports = (function () {
          * Default is true.
          * Only valid when offlineStorage is enabled.
          * @memberOf Data.prototype
-         * @method
+         * @method applyOffline
          * @param applyOffline
          * @returns {Data}
          * */
@@ -26286,9 +26451,9 @@ module.exports = (function () {
         },
 
         /**
-         * Sets additional non-standard HTTP headers in the current data request. See [List of Non-Standard HTTP Headers]{{% slug rest-api-headers}} for more information.
+         * Sets additional non-standard HTTP headers in the current data request. See [List of Request Parameters](http://docs.telerik.com/platform/backend-services/rest/apireference/RESTfulAPI/custom_headers) for more information.
          * @memberOf Data.prototype
-         * @method
+         * @method withHeaders
          * @param {object} headers Additional headers to be sent with the data request.
          * @returns {Data}
          */
@@ -26298,8 +26463,8 @@ module.exports = (function () {
         /**
          * Sets an expand expression to be used in the data request. This allows you to retrieve complex data sets using a single query based on relations between data types.
          * @memberOf Data.prototype
-         * @method
-         * @param {object} expandExpression An [expand expression]({% slug features-data-relations-defining-expand %}) definition.
+         * @method expand
+         * @param {object} expandExpression An [expand expression](http://docs.telerik.com/platform/backend-services/rest/data/relations/relations-defining) definition.
          * @returns {Data}
          */
         expand: function (expandExpression) {
@@ -26313,7 +26478,7 @@ module.exports = (function () {
             var self = this;
 
             if (!query.applyOffline) {
-                query.onError.call(this, new EverliveError('The applyOffline must be false when working offline.'));
+                query.onError.call(this, new EverliveError('The applyOffline must be true when working offline.'));
             } else {
                 self.offlineStorage.processQuery(query)
                     .then(function () {
@@ -26340,7 +26505,10 @@ module.exports = (function () {
                         .then(function () {
                             originalSuccess.apply(this, args);
                         }, function (err) {
-                            if (online && err.code === EverliveErrors.operationNotSupportedOffline.code) {
+                            var notSupported = EverliveErrors.operationNotSupportedOffline.code;
+                            var notFound = EverliveErrors.itemNotFound.code;
+
+                            if (online && (err.code === notSupported || err.code === notFound)) {
                                 originalSuccess.apply(this, args);
                             } else {
                                 query.onError.apply(this, arguments);
@@ -26379,14 +26547,7 @@ module.exports = (function () {
             requestOptions.headers[constants.Headers.sdk] = JSON.stringify(sdkHeaderValue);
         },
 
-        /**
-         * Processes a query with all of its options. Applies the operation online/offline
-         * @param {DataQuery} query The query to process
-         * @private
-         * @param {DataQuery} query
-         * @returns {Promise}
-         */
-        processDataQuery: function (query) {
+        processDataQuery: function (query) {            
             var self = this;
 
             var offlineStorageEnabled = this.everlive._isOfflineStorageEnabled();
@@ -26395,6 +26556,7 @@ module.exports = (function () {
             if (this.options) {
                 query = _.defaults(this.options, query);
             }
+            
             var isCachingEnabled = (this.everlive.setup.caching === true || (this.everlive.setup.caching && this.everlive.setup.caching.enabled));
             var isSupportedInOffline = utils.isQuerySupportedOffline(query);
 
@@ -26402,7 +26564,7 @@ module.exports = (function () {
             query.applyOffline = query.applyOffline !== undefined ? query.applyOffline : offlineStorageEnabled || query.useCache;
 
             if (!query.useCache && query.forceCache) {
-                query.onError.call(this, new EverliveError(EverliveErrors.cannotForceCacheWhenDisabled));
+                return query.onError.call(this, new EverliveError(EverliveErrors.cannotForceCacheWhenDisabled));
             }
 
             this.options = null;
@@ -26412,6 +26574,13 @@ module.exports = (function () {
                         var whenAuthenticatedPromise = self.everlive.authentication._ensureAuthentication();
                         if (!query.noRetry) {
                             whenAuthenticatedPromise.then(function () {
+                                if (query.headers && query.headers.authorization) {
+                                    //at this stage if a token is used for authentication it is already invalidated
+                                    //we need to set the new one to the query
+                                    var authHeader = utils.buildAuthHeader(self.everlive.setup);
+                                    _.extend(query.headers, authHeader);
+                                }
+
                                 return self.processDataQuery(query);
                             });
                         }
@@ -26433,9 +26602,38 @@ module.exports = (function () {
                 }
             }
 
+            if (_.contains(beforeExecuteAllowedOperations, query.operation)) {
+                var eventQuery = EventQuery.fromDataQuery(query);
+                this.everlive._emitter.emit(constants.Events.BeforeExecute, eventQuery);
+                if (eventQuery.isCancelled()) {
+                    return;
+                }
+
+                query.applyEventQuery(eventQuery);
+            }
+            
+            var canUseOffline = undefined;
+            if (utils.isContentType.files(query.collectionName) && platform.isDesktop) {
+                var op = query.operation;
+                
+                if (query.useOffline && query.applyOffline && (op === DataQuery.operations.Create || op === DataQuery.operations.Update)) {
+                    return query.onError.call(this, new EverliveError(EverliveErrors.filesNotSupportedInBrowser));
+                }
+                
+                var isDesktopFilesOpSupported = op === DataQuery.operations.Read ||
+                    op === DataQuery.operations.ReadById ||
+                    op === DataQuery.operations.FilesGetDownloadUrlById ||
+                    op === DataQuery.operations.Delete ||
+                    op === DataQuery.operations.DeleteById;
+                
+                canUseOffline = query.useOffline && isDesktopFilesOpSupported;
+            } else {
+                canUseOffline = query.useOffline;
+            }
+                  
             if ((!query.isSync && this.offlineStorage && this.offlineStorage.isSynchronizing())) {
                 query.onError.call(this, new EverliveError(EverliveErrors.syncInProgress));
-            } else if (query.useOffline) {
+            } else if (canUseOffline) {
                 this._applyQueryOffline(query);
             } else {
                 this._applyQueryOnline(query);
@@ -26447,7 +26645,7 @@ module.exports = (function () {
          * @memberOf Data.prototype
          * @method get
          * @name get
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Promise} The promise for the request.
          */
         /**
@@ -26455,18 +26653,18 @@ module.exports = (function () {
          * @memberOf Data.prototype
          * @method get
          * @name get
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
-        get: function (filter, success, error) {
+        get: function (filterOrQuery, success, error) {
             var self = this;
 
             return buildPromise(function (successCb, errorCb) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.read,
+                    operation: DataQuery.operations.Read,
                     collectionName: self.collectionName,
-                    filter: filter,
+                    query: self._generateQueryFromFilter(filterOrQuery),
                     onSuccess: successCb,
                     onError: errorCb
                 });
@@ -26499,7 +26697,7 @@ module.exports = (function () {
 
             return buildPromise(function (successCb, errorCb) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.readById,
+                    operation: DataQuery.operations.ReadById,
                     collectionName: self.collectionName,
                     parse: Request.parsers.single,
                     additionalOptions: {
@@ -26513,13 +26711,46 @@ module.exports = (function () {
                 return self.processDataQuery(dataQuery);
             }, success, error);
         },
+        /**
+         *  A fluent API aggregation / grouping data from server. Can accept aggregationExpression or fluent chaining rules.
+         * @memberOf Data.prototype
+         * @method aggregate
+         * @name aggregate
+         * @param {object} GroupBy fields / Aggregation functions [aggregationExpression].
+         * @returns {Promise} The promise for the request.
+         */
+        /**
+         *  A fluent API aggregation / grouping data from server. Can accept aggregationExpression or fluent chaining rules.
+         * @memberOf Data.prototype
+         * @method aggregate
+         * @name aggregate
+         * @param {object} GroupBy fields / Aggregation functions [aggregationExpression].
+         * @param {Function} [success] A success callback.
+         * @param {Function} [error] An error callback.
+         * */
+
+        aggregate: function (aggregateQuery, success, error) {
+            var self = this;
+
+            return buildPromise(function (successCb, errorCb) {
+                var aggrDataQuery = new DataQuery({
+                    operation: constants.DataQueryOperations.Aggregate,
+                    query: aggregateQuery,
+                    collectionName: self.collectionName,
+                    parse: Request.parsers.single,
+                    onSuccess: successCb,
+                    onError: errorCb
+                });
+                return self.processDataQuery(aggrDataQuery);
+            }, success, error);
+        },
 
         /**
          * Gets the count of the data items that match the filter.
          * @memberOf Data.prototype
          * @method count
          * @name count
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Promise} The promise for the request.
          */
         /**
@@ -26527,18 +26758,18 @@ module.exports = (function () {
          * @memberOf Data.prototype
          * @method count
          * @name count
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
-        count: function (filter, success, error) {
+        count: function (filterOrQuery, success, error) {
             var self = this;
 
             return buildPromise(function (sucessCb, errorCb) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.count,
+                    operation: DataQuery.operations.Count,
                     collectionName: self.collectionName,
-                    filter: filter,
+                    query: self._generateQueryFromFilter(filterOrQuery),
                     parse: Request.parsers.single,
                     onSuccess: sucessCb,
                     onError: errorCb
@@ -26569,14 +26800,13 @@ module.exports = (function () {
 
             return buildPromise(function (success, error) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.create,
+                    operation: DataQuery.operations.Create,
                     collectionName: self.collectionName,
                     data: data,
                     parse: Request.parsers.single,
                     onSuccess: mergeResultData(data, success),
                     onError: error
                 });
-
 
                 return self.processDataQuery(dataQuery);
             }, success, error);
@@ -26587,7 +26817,7 @@ module.exports = (function () {
          * @method rawUpdate
          * @name rawUpdate
          * @param {object} updateObject Update object that contains the new values.
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Promise} The promise for the request.
          */
         /**
@@ -26596,7 +26826,7 @@ module.exports = (function () {
          * @method rawUpdate
          * @name rawUpdate
          * @param {object} updateObject Update object that contains the new values.
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
@@ -26619,15 +26849,26 @@ module.exports = (function () {
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
-        rawUpdate: function (attrs, filter, success, error) {
+        rawUpdate: function (attrs, filterOrId, success, error) {
             var self = this;
+            var isSingleUpdate = typeof filterOrId === 'string' || typeof filterOrId === 'number';
+
+            if (isSingleUpdate && !utils.modelHasValidId(filterOrId)) {
+                return self._invalidIdRejectedPromise();
+            }
+
+            var query = isSingleUpdate ? filterOrId : self._generateQueryFromFilter(filterOrId);
 
             return buildPromise(function (success, error) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.rawUpdate,
+                    operation: DataQuery.operations.RawUpdate,
                     collectionName: self.collectionName,
-                    filter: filter,
+                    parse: Request.parsers.update,
+                    query: query,
                     data: attrs,
+                    additionalOptions: {
+                        id: isSingleUpdate ? filterOrId : undefined
+                    },
                     onSuccess: success,
                     onError: error
                 });
@@ -26635,7 +26876,7 @@ module.exports = (function () {
             }, success, error);
         },
         // TODO: Check if there is a case in which replace = true is passed to this function
-        _update: function (attrs, filter, single, replace, success, error) {
+        _update: function (attrs, filterOrQuery, single, replace, success, error) {
             var self = this;
 
             return buildPromise(function (success, error) {
@@ -26646,10 +26887,10 @@ module.exports = (function () {
                 var onSuccess = single ? mergeUpdateResultData(attrs, success) : success;
 
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.update,
+                    operation: DataQuery.operations.Update,
                     collectionName: self.collectionName,
                     parse: Request.parsers.update,
-                    filter: filter,
+                    query: self._generateQueryFromFilter(filterOrQuery),
                     data: data,
                     additionalOptions: {
                         id: single ? attrs[idField] : undefined
@@ -26679,7 +26920,16 @@ module.exports = (function () {
          * @param {Function} [error] An error callback.
          */
         updateSingle: function (model, success, error) {
+            if (!utils.modelHasValidId(model)) {
+                return this._invalidIdRejectedPromise();
+            }
+
             return this._update(model, null, true, false, success, error);
+        },
+
+        _invalidIdRejectedPromise: function () {
+            var err = new EverliveError(EverliveErrors.invalidId);
+            return utils.rejectedPromise(err);
         },
 
         /**
@@ -26688,7 +26938,7 @@ module.exports = (function () {
          * @method update
          * @name update
          * @param {object} updateObject The update object.
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Promise} The promise for the request.
          */
         /**
@@ -26697,31 +26947,51 @@ module.exports = (function () {
          * @method update
          * @name update
          * @param {object} model The update object.
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
         update: function (model, filter, success, error) {
             return this._update(model, filter, false, false, success, error);
         },
-        _destroy: function (attrs, filter, single, success, error) {
+        _destroy: function (attrs, filterOrQuery, single, success, error) {
             var self = this;
 
             return buildPromise(function (success, error) {
+                // for support of destroySingle using string id
+                var idField = (attrs && typeof attrs === 'object') ? attrs[constants.idField] : attrs;
+
                 var dataQuery = new DataQuery({
-                    operation: single ? DataQuery.operations.removeSingle : DataQuery.operations.remove,
+                    operation: single ? DataQuery.operations.DeleteById : DataQuery.operations.Delete,
                     collectionName: self.collectionName,
-                    filter: filter,
+                    query: self._generateQueryFromFilter(filterOrQuery),
                     onSuccess: success,
                     onError: error,
                     additionalOptions: {
-                        id: single ? attrs[idField] : undefined
+                        id: single ? idField : undefined
                     }
                 });
                 return self.processDataQuery(dataQuery);
             }, success, error);
         },
 
+        /**
+         * Deletes a single data item by ID.
+         * @memberOf Data.prototype
+         * @method destroySingle
+         * @name destroySingle
+         * @param {string} itemId The ID of the item to delete.
+         * @returns {Promise} The promise for the request.
+         */
+        /**
+         * Deletes a single data item by ID.
+         * @memberOf Data.prototype
+         * @method destroySingle
+         * @name destroySingle
+         * @param {string} itemId The ID of the item to delete.
+         * @param {Function} [success] A success callback.
+         * @param {Function} [error] An error callback.
+         */
         /**
          * Deletes a single data item by ID.
          * @memberOf Data.prototype
@@ -26740,6 +27010,10 @@ module.exports = (function () {
          * @param {Function} [error] An error callback.
          */
         destroySingle: function (model, success, error) {
+            if (!utils.modelHasValidId(model)) {
+                return this._invalidIdRejectedPromise();
+            }
+
             return this._destroy(model, null, true, success, error);
         },
 
@@ -26748,7 +27022,7 @@ module.exports = (function () {
          * @memberOf Data.prototype
          * @method destroy
          * @name destroy
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @returns {Promise} The promise for the request.
          */
         /**
@@ -26756,7 +27030,7 @@ module.exports = (function () {
          * @memberOf Data.prototype
          * @method destroy
          * @name destroy
-         * @param {object|null} filter A [filter expression]({% slug rest-api-querying-filtering %}) definition.
+         * @param {object|null} filter A [filter expression](http://docs.telerik.com/platform/backend-services/rest/queries/queries-filtering) definition.
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
@@ -26803,17 +27077,22 @@ module.exports = (function () {
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
-        setAcl: function (acl, filter, success, error) {
+        setAcl: function (acl, itemOrId, success, error) {
+            if (!utils.modelHasValidId(itemOrId)) {
+                return this._invalidIdRejectedPromise();
+            }
+
             var self = this;
+            var id = _.isObject(itemOrId) ? itemOrId[idField] : itemOrId;
 
             return buildPromise(function (success, error) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.setAcl,
+                    operation: DataQuery.operations.SetAcl,
                     collectionName: self.collectionName,
                     parse: Request.parsers.single,
-                    filter: filter,
+                    data: acl,
                     additionalOptions: {
-                        acl: acl
+                        id: id
                     },
                     onSuccess: success,
                     onError: error
@@ -26864,20 +27143,28 @@ module.exports = (function () {
          * @param {Function} [success] A success callback.
          * @param {Function} [error] An error callback.
          */
-        setOwner: function (ownerId, filter, success, error) {
+        setOwner: function (ownerId, itemOrId, success, error) {
+            if (!utils.modelHasValidId(itemOrId)) {
+                return this._invalidIdRejectedPromise();
+            }
+
             var self = this;
+            var id = _.isObject(itemOrId) ? itemOrId[idField] : itemOrId;
 
             return buildPromise(function (success, error) {
                 var dataQuery = new DataQuery({
-                    operation: DataQuery.operations.setOwner,
+                    operation: DataQuery.operations.SetOwner,
                     collectionName: self.collectionName,
-                    filter: filter,
                     data: {
                         Owner: ownerId
+                    },
+                    additionalOptions: {
+                        id: id
                     },
                     onSuccess: success,
                     onError: error
                 });
+
                 return self.processDataQuery(dataQuery);
             }, success, error);
         },
@@ -26923,7 +27210,7 @@ module.exports = (function () {
         /**
          * Checks if the specified data item is new or not.
          * @memberOf Data.prototype
-         * @method
+         * @method isNew
          * @param model Item to check.
          * @returns {boolean}
          */
@@ -26935,7 +27222,7 @@ module.exports = (function () {
     return Data;
 }());
 
-},{"../Everlive":46,"../EverliveError":47,"../Request":52,"../common":58,"../constants":59,"../everlive.platform":61,"../query/DataQuery":85,"../query/RequestOptionsBuilder":88,"../utils":99}],97:[function(require,module,exports){
+},{"../Everlive":47,"../EverliveError":48,"../Request":53,"../common":59,"../constants":60,"../everlive.platform":62,"../query/DataQuery":87,"../query/EventQuery":88,"../query/Query":89,"../query/RequestOptionsBuilder":91,"../utils":102}],100:[function(require,module,exports){
 /**
  * @class Files
  * @protected
@@ -26946,6 +27233,7 @@ var buildPromise = require('../utils').buildPromise;
 var DataQuery = require('../query/DataQuery');
 var Request = require('../Request');
 var utils = require('../utils');
+var platform = require('../everlive.platform');
 
 module.exports.addFilesFunctions = function addFilesFunctions(ns) {
     /**
@@ -27001,7 +27289,7 @@ module.exports.addFilesFunctions = function addFilesFunctions(ns) {
 
         return buildPromise(function (success, error) {
             var dataQuery = new DataQuery({
-                operation: DataQuery.operations.filesUpdateContent,
+                operation: DataQuery.operations.FilesUpdateContent,
                 // the passed file content is base64 encoded
                 data: file,
                 collectionName: self.collectionName,
@@ -27036,8 +27324,14 @@ module.exports.addFilesFunctions = function addFilesFunctions(ns) {
         var self = this;
 
         return buildPromise(function (success, error) {
+            if (platform.isDesktop && !self.everlive.isOnline()) {
+                //while in offline we cannot get the url of the file, but we can generate one
+                var url = self.getDownloadUrl(fileId);
+                return success(url);
+            }
+
             var dataQuery = new DataQuery({
-                operation: DataQuery.operations.filesGetDownloadUrlById,
+                operation: DataQuery.operations.FilesGetDownloadUrlById,
                 collectionName: self.collectionName,
                 additionalOptions: {
                     id: fileId
@@ -27054,18 +27348,85 @@ module.exports.addFilesFunctions = function addFilesFunctions(ns) {
         }, success, error);
     };
 
+    /**
+     * Downloads a file to the device's file system. Wraps the Apache Cordova "download()" [FileTransfer](http://cordova.apache.org/docs/en/2.7.0/cordova_file_file.md.html#FileTransfer) method. Note that the signatures of these methods differ.
+     * @memberof Files.prototype
+     * @method download
+     * @param {string} fileToDownload A Backend Services File ID.
+     * @param {string} pathOnDevice An Apache Cordova FileSystem URL representing the local path on the device where the downloaded file will be saved. Maps to the "target" FileTransfer plugin parameter.
+     * @param {object} [options] Additional request options. Maps to the "options" FileTransfer plugin parameter.
+     * @param {object} [options.headers] A JSON object containing headers to send along with the request.
+     * @param {boolean} [trustAllHosts=false] Whether to accept all security certificates including self-signed certificates. Maps to the "trustAllHosts" FileTransfer plugin parameter.
+     * @returns {Promise} The promise for the request.
+     */
+    /**
+     * Downloads a file to the device's file system. Wraps the Apache Cordova "download()" [FileTransfer](http://cordova.apache.org/docs/en/2.7.0/cordova_file_file.md.html#FileTransfer) method. Note that the signatures of these methods differ.
+     * @memberof Files.prototype
+     * @method download
+     * @param {string} fileToDownload A Backend Services File ID.
+     * @param {string} pathOnDevice An Apache Cordova FileSystem URL representing the local path on the device where the downloaded file will be saved. Maps to the "target" FileTransfer plugin parameter.
+     * @param {object} [options] Additional request options. Maps to the "options" FileTransfer plugin parameter.
+     * @param {object} [options.headers] A JSON object containing headers to send along with the request.
+     * @param {boolean} [trustAllHosts=false] Whether to accept all security certificates including self-signed certificates. Maps to the "trustAllHosts" FileTransfer plugin parameter.
+     * @param {Function} [success] A success callback that is passed an Apache Cordova [FileEntry](https://cordova.apache.org/docs/en/3.3.0/cordova_file_file.md.html#FileEntry) object. Maps to the "successCallback" FileTransfer plugin parameter.
+     * @param {Function} [error] An error callback that is passed an Apache Cordova [FileTransferError](https://github.com/apache/cordova-plugin-file-transfer#filetransfererror) object. Maps to the "errorCallback" FileTransfer plugin parameter.
+     */
     ns.download = function (url, localPath, options, trustAllHosts, success, error) {
+        var self = this;
+
         return buildPromise(function (success, error) {
             if (!trustAllHosts) {
                 trustAllHosts = false;
             }
 
+            var headers = options && options.headers ? options.headers : {};
+
             var fileTransfer = new FileTransfer();
-            fileTransfer.download(url, localPath, success, error, trustAllHosts, options);
+            self.withHeaders(headers)
+                .getById(url)
+                .then(function (res) {
+                    var file = res.result;
+                    url = file.Uri;
+                    fileTransfer.download(url, localPath, success, error, trustAllHosts, options);
+                }, error);
         }, success, error);
     };
 
-    ns.upload = function (localPath, url, options, trustAllHosts, success, error) {
+    /**
+     * Uploads a file from the device's file system to Backend Services. Wraps the Apache Cordova "upload()" [FileTransfer](http://cordova.apache.org/docs/en/2.7.0/cordova_file_file.md.html#FileTransfer) method. Note that the signatures of these methods differ.
+     * @memberof Files.prototype
+     * @method upload
+     * @param {string} fileToUpload An Apache Cordova FileSystem URL representing the full path to the file on the device.
+     * @param {object} [options] Additional request options. Maps to the "options" FileTransfer plugin parameter.
+     * @param {string} [options.fileKey] The name of the form element. Defaults to 'file' in the FileTransfer plugin parameter.
+     * @param {string} [options.fileName] The file name to use when uploading the file. Defaults to 'image.jpg' in the FileTransfer plugin.
+     * @param {string} [options.httpMethod] The HTTP method to use, either POST or PUT. Defaults to 'POST' in the FileTransfer plugin parameter.
+     * @param {string} [options.mimeType] The mime type of the uploaded data. Defaults to 'image/jpeg' in the FileTransfer plugin parameter.
+     * @param {object} [options.params] A set of optional key/value pairs to pass in the HTTP request.
+     * @param {boolean} [options.chunkedMode] Whether to upload the data in chunked streaming mode. Defaults to 'true' in the FileTransfer plugin parameter.
+     * @param {object} [options.headers] A JSON object for the headers to send along with the request.
+     * @param {boolean} [trustAllHosts=false] Whether to accept all security certificates including self-signed certificates. Maps to the "trustAllHosts" FileTransfer plugin parameter.
+     * @returns {Promise} The promise for the request.
+     */
+    /**
+     * Uploads a file from the device's file system to Backend Services. Wraps the Apache Cordova "upload()" [FileTransfer](http://cordova.apache.org/docs/en/2.7.0/cordova_file_file.md.html#FileTransfer) method. Note that the signatures of these methods differ.
+     * @memberof Files.prototype
+     * @method upload
+     * @param {string} fileToUpload An Apache Cordova FileSystem URL representing the full path to the file on the device.
+     * @param {object} [options] Additional request options. Maps to the "options" FileTransfer plugin parameter.
+     * @param {string} [options.fileKey] The name of the form element. Defaults to 'file' in the FileTransfer plugin parameter.
+     * @param {string} [options.fileName] The file name to use when uploading the file. Defaults to 'image.jpg' in the FileTransfer plugin parameter.
+     * @param {string} [options.httpMethod] The HTTP method to use, either POST or PUT. Defaults to 'POST' in the FileTransfer plugin parameter.
+     * @param {string} [options.mimeType] The mime type of the uploaded data. Defaults to 'image/jpeg' in the FileTransfer plugin parameter.
+     * @param {object} [options.params] A set of optional key/value pairs to pass in the HTTP request.
+     * @param {boolean} [options.chunkedMode] Whether to upload the data in chunked streaming mode. Defaults to 'true' in the FileTransfer plugin parameter.
+     * @param {object} [options.headers] A JSON object for the headers to send along with the request.
+     * @param {boolean} [trustAllHosts=false] Whether to accept all security certificates including self-signed certificates. Maps to the "trustAllHosts" FileTransfer plugin parameter.
+     * @param {Function} [success] A success callback that is passed an Apache Cordova [FileUploadResult](https://github.com/apache/cordova-plugin-file-transfer#fileuploadresult) object. Maps to the "successCallback" FileTransfer plugin parameter.
+     * @param {Function} [error] An error callback that is passed an Apache Cordova [FileTransferError](https://github.com/apache/cordova-plugin-file-transfer#filetransfererror) object. Maps to the "errorCallback" FileTransfer plugin parameter.
+     */
+    ns.upload = function (localPath, options, trustAllHosts, success, error) {
+        var url = this.getUploadUrl();
         return buildPromise(function (success, error) {
             if (!trustAllHosts) {
                 trustAllHosts = false;
@@ -27076,7 +27437,7 @@ module.exports.addFilesFunctions = function addFilesFunctions(ns) {
         }, success, error);
     }
 };
-},{"../Request":52,"../query/DataQuery":85,"../utils":99}],98:[function(require,module,exports){
+},{"../Request":53,"../everlive.platform":62,"../query/DataQuery":87,"../utils":102}],101:[function(require,module,exports){
 /**
  * @class Users
  * @extends Data
@@ -27127,14 +27488,14 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
     };
 
     /**
-     * Gets information about the user that is currently authenticated to the {{site.bs}} JavaScript SDK. The success function is called with {@link Users.ResultTypes.curentUserResult}.
+     * Gets information about the user that is currently authenticated to the {{site.bs}} JavaScript SDK. The success function is called with {@link Users.ResultTypes.currentUserResult}.
      * @memberOf Users.prototype
      * @method currentUser
      * @name currentUser
      * @returns {Promise} The promise for the request.
      */
     /**
-     * Gets information about the user that is currently authenticated to the {{site.bs}} JavaScript SDK. The success function is called with {@link Users.ResultTypes.curentUserResult}.
+     * Gets information about the user that is currently authenticated to the {{site.bs}} JavaScript SDK. The success function is called with {@link Users.ResultTypes.currentUserResult}.
      * @memberOf Users.prototype
      * @method currentUser
      * @name currentUser
@@ -27207,7 +27568,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
             });
 
             var dataQuery = new DataQuery({
-                operation: DataQuery.operations.userChangePassword,
+                operation: DataQuery.operations.UserChangePassword,
                 collectionName: self.collectionName,
                 data: {
                     Username: username,
@@ -27217,7 +27578,6 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
                 additionalOptions: {
                     keepTokens: keepTokens
                 },
-                skipAuth: true,
                 onSuccess: success,
                 onError: error
             });
@@ -27694,7 +28054,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
 
         return buildPromise(function (successCb, errorCb) {
             var dataQuery = new DataQuery({
-                operation: DataQuery.operations.userResetPassword,
+                operation: DataQuery.operations.UserResetPassword,
                 collectionName: self.collectionName,
                 data: user,
                 onSuccess: successCb,
@@ -27756,7 +28116,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
 
         return buildPromise(function (successCb, errorCb) {
             var dataQuery = new DataQuery({
-                operation: DataQuery.operations.userSetPassword,
+                operation: DataQuery.operations.UserSetPassword,
                 collectionName: self.collectionName,
                 data: setPasswordObject,
                 onSuccess: successCb,
@@ -27774,7 +28134,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
                 additionalOptions: {
                     id: userId
                 },
-                operation: DataQuery.operations.userLinkWithProvider,
+                operation: DataQuery.operations.UserLinkWithProvider,
                 collectionName: self.collectionName,
                 data: identity,
                 parse: Request.parsers.single,
@@ -27797,7 +28157,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
                 additionalOptions: {
                     userId: userId
                 },
-                operation: DataQuery.operations.userUnlinkFromProvider,
+                operation: DataQuery.operations.UserUnlinkFromProvider,
                 collectionName: self.collectionName,
                 data: identity,
                 parse: Request.parsers.single,
@@ -27810,7 +28170,7 @@ module.exports.addUsersFunctions = function addUsersFunctions(ns, everlive) {
         }, success, error);
     };
 };
-},{"../EverliveError":47,"../Request":52,"../common":58,"../query/DataQuery":85,"../utils":99}],99:[function(require,module,exports){
+},{"../EverliveError":48,"../Request":53,"../common":59,"../query/DataQuery":87,"../utils":102}],102:[function(require,module,exports){
 var EverliveError = require('./EverliveError').EverliveError;
 var common = require('./common');
 var _ = common._;
@@ -27818,6 +28178,7 @@ var rsvp = common.rsvp;
 var Everlive = require('./Everlive');
 var platform = require('./everlive.platform');
 var path = require('path');
+var constants = require('./constants');
 
 var utils = {};
 
@@ -27828,6 +28189,21 @@ utils.guardUnset = function guardUnset(value, name, message) {
     if (typeof value === 'undefined' || value === null) {
         throw new EverliveError(message);
     }
+};
+
+//brings down all keys to the same level (lowerCase)
+utils.normalizeKeys = function normalizeKeys(obj) {
+    var normalizedKeys = {};
+
+    _.each(obj, function (val, key) {
+        var lowerKey = key.toLowerCase();
+
+        if (!normalizedKeys.hasOwnProperty(lowerKey)) {
+            normalizedKeys[lowerKey] = val;
+        }
+    });
+
+    return normalizedKeys;
 };
 
 utils.parseUtilities = {
@@ -28041,7 +28417,7 @@ utils.buildAuthHeader = function buildAuthHeader(setup, options) {
         authHeaderValue = 'masterkey ' + setup.masterKey;
     }
     if (authHeaderValue) {
-        return {Authorization: authHeaderValue};
+        return {authorization: authHeaderValue};
     } else {
         return null;
     }
@@ -28061,8 +28437,8 @@ utils.buildUrl = function (setup) {
         url += setup.scheme + ':';
     }
     url += setup.url;
-    if (setup.apiKey) {
-        url += setup.apiKey + '/';
+    if (setup.appId) {
+        url += setup.appId + '/';
     }
     return url;
 };
@@ -28070,7 +28446,7 @@ utils.buildUrl = function (setup) {
 utils.getDbOperators = function (expression, shallow) {
     var dbOperators = [];
 
-    if (typeof expression === 'string') {
+    if (typeof expression === 'string' || typeof expression === 'number') {
         return dbOperators;
     }
 
@@ -28200,6 +28576,12 @@ utils.isContentType = {
     },
     users: function (collectionName) {
         return utils._stringCompare(collectionName, 'users');
+    },
+    pushNotifications: function (collectionName) {
+        return utils._stringCompare(collectionName, constants.Push.NotificationsType.toLowerCase());
+    },
+    pushDevices: function (collectionName) {
+        return utils._stringCompare(collectionName, constants.Push.DevicesType.toLowerCase());
     }
 };
 
@@ -28261,8 +28643,24 @@ utils.lazyRequire = function (moduleName, exportName) {
     return obj;
 };
 
+utils._inAppBuilderSimulator = function () {
+    return typeof window !== undefined && window.navigator && window.navigator.simulator;
+};
+
+utils.isValidId = function (input) {
+    var isValidString = typeof input === 'string' && input !== '';
+    var isValidNumber = typeof input === 'number' && !_.isNaN(input);
+
+    return isValidString || isValidNumber;
+};
+
+utils.modelHasValidId = function (model) {
+    var idToValidate = (typeof model === 'object' && model !== null) ? model.Id : model;
+    return utils.isValidId(idToValidate);
+};
+
 module.exports = utils;
 
-},{"./Everlive":46,"./EverliveError":47,"./common":58,"./everlive.platform":61,"path":3}]},{},[66])(66)
+},{"./Everlive":47,"./EverliveError":48,"./common":59,"./constants":60,"./everlive.platform":62,"path":3}]},{},[67])(67)
 });
 //# sourceMappingURL=everlive.map

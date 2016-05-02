@@ -12,7 +12,7 @@ describe("A Data Provider", function() {
       query = new Everlive.Query();
 
     function dataReceived(err) {
-      expect(err).toEqual('The specified content type was not found.');
+      expect(err.message).toEqual('The specified content type was not found.');
 
       done();
     }
