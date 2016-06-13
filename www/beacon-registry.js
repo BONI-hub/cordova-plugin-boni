@@ -9,9 +9,9 @@ var async = require('cordova.plugin.boni.аsync'),
 /**
  * Collection of all iBeacons in range
  */
-var BeaconRegistry = function() {};
+var BeaconRegistry = function () { };
 
-BeaconRegistry.prototype = function() {
+BeaconRegistry.prototype = function () {
   var _spots = [],
     /**
      * Event callbacks
@@ -22,7 +22,7 @@ BeaconRegistry.prototype = function() {
     _onAlwaysForSpot = null,
 
 
-    get = function(uuid, major, minor) {
+    get = function (uuid, major, minor) {
 
       if (!uuid || !major || !minor) {
         /**
@@ -39,7 +39,7 @@ BeaconRegistry.prototype = function() {
        * If all input arguments are valid, check whether the beacon already exists
        * in the beacon registry and return it. Otherwise undefined.
        */
-      return _.find(_spots, function(spot) {
+      return _.find(_spots, function (spot) {
         var beacon = spot.getBeacon();
 
         return (
@@ -50,7 +50,7 @@ BeaconRegistry.prototype = function() {
       });
     },
 
-    add = function(error, spot) {
+    add = function (error, spot) {
 
       if (!error) {
 
@@ -62,15 +62,15 @@ BeaconRegistry.prototype = function() {
       }
     },
 
-    clear = function() {
+    clear = function () {
       _spots = [];
     },
 
-    size = function() {
+    size = function () {
       return _spots.length;
     },
 
-    applyProximityStrategy = function(spot) {
+    applyProximityStrategy = function (spot) {
 
       if (spot) {
         var beacon = spot.getBeacon();
@@ -98,7 +98,7 @@ BeaconRegistry.prototype = function() {
       }
     },
 
-    register = function(beacon, done) {
+    register = function (beacon, done) {
 
       if (beacon) {
 
@@ -108,17 +108,19 @@ BeaconRegistry.prototype = function() {
           applyProximityStrategy(spot);
 
           async.waterfall([
-            function(callback) {
+            function (callback) {
 
               spot.getData(callback);
             }
-          ], function(err, spotWithData) {
+          ], function (err, spotWithData) {
+
 
             if (!err && spotWithData && spotWithData.data && spotWithData.data.length > 0) {
 
               add(null, spotWithData);
               done(beacon);
             } else {
+
               add(null, spot);
               done(null);
             }
@@ -129,7 +131,7 @@ BeaconRegistry.prototype = function() {
       }
     },
 
-    process = function(beacon) {
+    process = function (beacon) {
 
       if (!beacon) {
         return;
@@ -163,7 +165,7 @@ BeaconRegistry.prototype = function() {
           if (!currentBeacon.previouseProximity || currentBeacon.proximity !==
             currentBeacon.previouseProximity) {
 
-              callRegisteredCallback(_onAlwaysForSpot, spot);
+            callRegisteredCallback(_onAlwaysForSpot, spot);
 
             /**
              * update the previouse proximity
@@ -201,7 +203,31 @@ BeaconRegistry.prototype = function() {
 
         if (_.isFunction(callback) && spot) {
           if (spot.data) {
-            callback(null, spot.data);
+            var result = [];
+
+            for(var idx=0; idx < spot.data.length; idx++){
+
+              var currentData = spot.data[idx];
+              var currentDataResult = {};
+
+              /**
+               * Construct result object
+               */
+            
+              currentDataResult.name = currentData.name;
+              currentDataResult.description = currentData.description;
+              currentDataResult.data = currentData.data;
+              currentDataResult.type = currentData.type;
+              currentDataResult.spotId = currentData.spotId;
+              currentDataResult.createdAt = currentData.CreatedAt;
+              currentDataResult.modifiedAt = currentData.ModifiedAt;
+              currentDataResult.id = currentData.Id;
+
+              result.push(currentDataResult);
+
+            }
+
+            callback(null, result);
           }
         }
       }
@@ -211,7 +237,7 @@ BeaconRegistry.prototype = function() {
      * Register onImmediateToSpot callback
      * @param  {Function} callback function to be called when the user is immediate to spot
      */
-    onImmediateToSpot = function(callback) {
+    onImmediateToSpot = function (callback) {
       _onImmediateToSpot = callback;
     },
 
@@ -219,7 +245,7 @@ BeaconRegistry.prototype = function() {
      * Register onNearToSpot callback
      * @param  {Function} callback function to be called when the user is near to spot
      */
-    onNearToSpot = function(callback) {
+    onNearToSpot = function (callback) {
       _onNearToSpot = callback;
     },
 
@@ -227,11 +253,11 @@ BeaconRegistry.prototype = function() {
      * Register onFarFromSpot callback
      * @param  {Function} callback function to be called when the user is far from spot
      */
-    onFarFromSpot = function(callback) {
+    onFarFromSpot = function (callback) {
       _onFarFromSpot = callback;
     },
 
-    onAlwaysForSpot = function(callback) {
+    onAlwaysForSpot = function (callback) {
       _onAlwaysForSpot = callback;
     };
 
@@ -248,7 +274,7 @@ BeaconRegistry.prototype = function() {
     onImmediateToSpot: onImmediateToSpot,
     onAlwaysForSpot: onAlwaysForSpot
   };
-}();
+} ();
 
 
 module.exports = BeaconRegistry;

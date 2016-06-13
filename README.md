@@ -80,6 +80,29 @@ onDeviceReady: function() {
 }
 ```
 
+Each calback functions will receive error and content agruments. The content object looks like:
+```
+[ 
+    {
+        "name": "Content Name",
+        "description": "Content Description",
+        "data": {
+            "url": "https://my.content.com",
+            "imageUrl": "http://image.content.com"
+        },
+        "type": "website",
+        "spotId": "462b9890-0663-11e6-b26c-a90549403799",
+        "createdAt": "2016-04-20T09:29:09.607Z",
+        "modifiedAt": "2016-06-13T16:49:19.302Z",
+        "id": "55f3ff70-06da-11e6-9ad6-0fee46c4b16f"
+    },
+
+    ...
+]
+```
+Bare in mind that the content is array of content items that are pinned up to the particular spot.
+
+
 See also:
 
 -	[Documentation](http://boni.io/docs/)
