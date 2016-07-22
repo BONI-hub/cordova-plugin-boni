@@ -5,25 +5,25 @@ var config = require('cordova.plugin.boni.config'),
     _ = require('cordova.plugin.boni.lodash'),
     beaconRegistry = new BeaconRegistry();
 
-function Boni() {}
+function Boni() { }
 
-Boni.prototype.onImmediateToSpot = function(callback) {
+Boni.prototype.onImmediateToSpot = function (callback) {
     beaconRegistry.onImmediateToSpot(callback);
 };
 
-Boni.prototype.onNearToSpot = function(callback) {
+Boni.prototype.onNearToSpot = function (callback) {
     beaconRegistry.onNearToSpot(callback);
 };
 
-Boni.prototype.onFarFromSpot = function(callback) {
+Boni.prototype.onFarFromSpot = function (callback) {
     beaconRegistry.onFarFromSpot(callback);
 };
 
-Boni.prototype.onAlwaysForSpot = function(callback) {
+Boni.prototype.onAlwaysForSpot = function (callback) {
     beaconRegistry.onAlwaysForSpot(callback);
 };
 
-Boni.prototype.configure = function(configObj) {
+Boni.prototype.configure = function (configObj) {
     if (!configObj) {
         return;
     }
@@ -33,23 +33,21 @@ Boni.prototype.configure = function(configObj) {
             config.uuid.push(configObj.uuid[idx]);
         }
     }
+
+    if (configObj.idleTime) {
+        config.idleTime = configObj.idleTime;
+    }
+
+    if (configObj.rangingDuration) {
+        config.rangingDuration = configObj.rangingDuration;
+    }
+
+    if (configObj.initialRangingDuration) {
+        config.initialRangingDuration = configObj.initialRangingDuration;
+    }
 };
 
-Boni.prototype.ranging = function() {
-
-    var delegate = new cordova.plugins.locationManager.Delegate();
-
-    delegate.didRangeBeaconsInRegion = function(pluginResult) {
-        if (pluginResult && pluginResult.beacons) {
-            for (var beaconIdx = 0; beaconIdx < pluginResult.beacons.length; beaconIdx++) {
-                var currentBeacon = pluginResult.beacons[beaconIdx];
-                beaconRegistry.process(currentBeacon);
-            }
-        }
-    };
-
-    cordova.plugins.locationManager.setDelegate(delegate);
-
+Boni.prototype.startRangingMultipleSpots = function () {
     for (var supportedBeaconIdx = 0; supportedBeaconIdx < config.uuid.length; supportedBeaconIdx++) {
         var beaconRegion = new cordova.plugins.locationManager.BeaconRegion(config.identifier +
             supportedBeaconIdx, config.uuid[supportedBeaconIdx]);
@@ -62,6 +60,65 @@ Boni.prototype.ranging = function() {
             .fail(console.error)
             .done();
     }
+};
+
+Boni.prototype.stopRangingMultipleSpots = function () {
+    for (var supportedBeaconIdx = 0; supportedBeaconIdx < config.uuid.length; supportedBeaconIdx++) {
+        var beaconRegion = new cordova.plugins.locationManager.BeaconRegion(config.identifier +
+            supportedBeaconIdx, config.uuid[supportedBeaconIdx]);
+
+        cordova.plugins.locationManager.stopRangingBeaconsInRegion(beaconRegion)
+            .fail(function (e) { console.error(e); })
+            .done();
+    }
+};
+
+Boni.prototype.rangingMultipleSpots = function (rangingDuration, idleTime) {
+    if (!rangingDuration) {
+        rangingDuration = config.rangingDuration;
+    }
+
+    if (!idleTime) {
+        idleTime = config.idleTime;
+    }
+
+    var that = this;
+
+    setInterval(function () {
+        that.startRangingMultipleSpots();
+        setTimeout(function () {
+            that.stopRangingMultipleSpots();
+        }, rangingDuration);
+    }, rangingDuration + idleTime);
+};
+
+Boni.prototype.ranging = function () {
+
+    var delegate = new cordova.plugins.locationManager.Delegate();
+
+    delegate.didRangeBeaconsInRegion = function (pluginResult) {
+        console.log("didRangeBeaconsInRegion");
+        if (pluginResult && pluginResult.beacons) {
+            for (var beaconIdx = 0; beaconIdx < pluginResult.beacons.length; beaconIdx++) {
+                var currentBeacon = pluginResult.beacons[beaconIdx];
+                beaconRegistry.process(currentBeacon);
+            }
+        }
+    };
+
+    cordova.plugins.locationManager.setDelegate(delegate);
+
+    var that = this;
+
+    // Initial ranging
+    that.startRangingMultipleSpots();
+    setTimeout(function () {
+        that.stopRangingMultipleSpots();
+
+        that.rangingMultipleSpots();
+
+    }, config.initialRangingDuration);
+
 };
 
 module.exports.boni = new Boni();

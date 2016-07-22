@@ -5,6 +5,9 @@ module.exports = {
 		'a32773da-fd5d-11e4-a322-1697f925ec7b',
 		'b9407f30-f5f8-466e-aff9-25556b57fe6d'
 	],
+	idleTime: 6000,
+	rangingDuration: 3000,
+	initialRangingDuration: 5000,
 	identifier: 'BoniBeacon',
 	apikey: 'noxn9y12iygp6xtr', //local
 	proximity: {
