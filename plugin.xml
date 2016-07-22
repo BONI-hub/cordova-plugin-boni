@@ -32,4 +32,6 @@
     <merges target="cordova.plugins"/>
   </js-module>
   <dependency id="com.unarin.cordova.beacon" url="https://github.com/petermetz/cordova-plugin-ibeacon"/>
+  <dependency id="cordova-plugin-bluetooth-status" url="https://github.com/255kb/cordova-plugin-bluetooth-status"/>
+  <dependency id="cordova-plugin-device" url="cordova-plugin-device"/>
 </plugin>
