@@ -5,7 +5,9 @@ var config = require('cordova.plugin.boni.config'),
     _ = require('cordova.plugin.boni.lodash'),
     beaconRegistry = new BeaconRegistry();
 
-function Boni() { }
+function Boni() {
+    cordova.plugins.BluetoothStatus.initPlugin();
+}
 
 Boni.prototype.onImmediateToSpot = function (callback) {
     beaconRegistry.onImmediateToSpot(callback);
@@ -93,6 +95,14 @@ Boni.prototype.rangingMultipleSpots = function (rangingDuration, idleTime) {
 };
 
 Boni.prototype.ranging = function () {
+
+    if (!cordova.plugins.BluetoothStatus.BTenabled) {
+        if (device.platform == "Android") {
+            cordova.plugins.BluetoothStatus.enableBT();
+        } else {
+            alert("Bluetooth is disabled! Please enable it!");
+        }
+    }
 
     var delegate = new cordova.plugins.locationManager.Delegate();
 
