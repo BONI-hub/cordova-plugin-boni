@@ -40,7 +40,7 @@ BeaconRegistry.prototype = function () {
        * in the beacon registry and return it. Otherwise undefined.
        */
       return _.find(_spots, function (spot) {
-        var beacon = spot.getBeacon();
+        var beacon = spot.getSpotIdentifier();
 
         return (
           beacon.uuid == uuid &&
@@ -73,7 +73,7 @@ BeaconRegistry.prototype = function () {
     applyProximityStrategy = function (spot) {
 
       if (spot) {
-        var beacon = spot.getBeacon();
+        var beacon = spot.getSpotIdentifier();
         var proximityFactor = calculateProximityFactor(beacon);
 
         if (proximityFactor <= config.proximity.immediate.factor) {
@@ -110,7 +110,7 @@ BeaconRegistry.prototype = function () {
           async.waterfall([
             function (callback) {
 
-              spot.getData(callback);
+              spot.getContent(callback);
             }
           ], function (err, spotWithData) {
 
@@ -148,7 +148,7 @@ BeaconRegistry.prototype = function () {
         /**
          * Update iBeacon metadata
          */
-        var currentBeacon = spot.getBeacon();
+        var currentBeacon = spot.getSpotIdentifier();
         currentBeacon.proximity = beacon.proximity;
         currentBeacon.rssi = beacon.rssi;
         currentBeacon.tx = beacon.tx;

@@ -2,6 +2,7 @@
 
 var config = require('cordova.plugin.boni.config'),
     BeaconRegistry = require('cordova.plugin.boni.beaconRegistry'),
+    Beacon = require('cordova.plugin.boni.beacon'),
     _ = require('cordova.plugin.boni.lodash'),
     beaconRegistry = new BeaconRegistry();
 
@@ -111,7 +112,16 @@ Boni.prototype.ranging = function () {
         if (pluginResult && pluginResult.beacons) {
             for (var beaconIdx = 0; beaconIdx < pluginResult.beacons.length; beaconIdx++) {
                 var currentBeacon = pluginResult.beacons[beaconIdx];
-                beaconRegistry.process(currentBeacon);
+                var currentBeaconObj = new Beacon(
+                    currentBeacon.uuid,
+                    currentBeacon.major,
+                    currentBeacon.minor,
+                    currentBeacon.proximity,
+                    currentBeacon.rssi,
+                    currentBeacon.tx,
+                    currentBeacon.accuracy
+                );
+                beaconRegistry.process(currentBeaconObj);
             }
         }
     };

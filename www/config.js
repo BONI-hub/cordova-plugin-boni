@@ -9,7 +9,7 @@ module.exports = {
 	rangingDuration: 3000,
 	initialRangingDuration: 5000,
 	identifier: 'BoniBeacon',
-	apikey: 'jvnpnqqa76sfbdrf', //live
+	apikey: 'noxn9y12iygp6xtr', //local
 	proximity: {
 		immediate: {
 			name: 'ProximityImmediate',

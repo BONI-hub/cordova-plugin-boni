@@ -4,29 +4,29 @@ var async = require('cordova.plugin.boni.аsync'),
   Everlive = require('cordova.plugin.boni.everlive'),
   DataProvider = require('cordova.plugin.boni.dataProvider');
 
-var Spot = function(beacon) {
+var Spot = function (spotIdentifier) {
 
   /**
    * Check whether the mandatory arguments are provided
    */
-  if (!beacon) {
+  if (!spotIdentifier) {
     throw 'Mandatory argument is not provided';
   }
 
-  this._beacon = beacon;
+  this._spotIdentifier = spotIdentifier;
 };
 
-Spot.prototype = function() {
+Spot.prototype = function () {
 
-  var getBeacon = function() {
-      return this._beacon;
-    },
+  var getSpotIdentifier = function () {
+    return this._spotIdentifier;
+  },
 
     /**
      * Get the Content (cloud) data based on the iBeacon signal (uuid, major and minor ID)
      * @param  {Function} done Callback to be called when the Content (cloud) data is retrieved
      */
-    getData = function(done) {
+    getContent = function (done) {
 
       var dataProvider = new DataProvider();
 
@@ -39,16 +39,10 @@ Spot.prototype = function() {
        * Organize all actions related to retrieve of Content (cloud) objects here.
        */
       async.waterfall([
-        function(callback) {
+        function (callback) {
 
-          var query = new Everlive.Query();
-          var beacon = that.getBeacon();
-
-          query.where()
-            .and()
-            .eq('uuid', beacon.uuid.toLowerCase())
-            .eq('major', beacon.major.toString())
-            .eq('minor', beacon.minor.toString());
+          var spotIdentifier = that.getSpotIdentifier();
+          var query = spotIdentifier.getQuery();
 
           /**
            * Determine the spot based on the signal that came from iBeacon
@@ -58,7 +52,7 @@ Spot.prototype = function() {
             callback
           );
         },
-        function(spot, callback) {
+        function (spot, callback) {
 
           /**
            * If there is a spot for this iBeacon
@@ -85,7 +79,7 @@ Spot.prototype = function() {
           }
 
         }
-      ], function(err, cloudData) {
+      ], function (err, cloudData) {
 
         /**
          * If there is a Content (cloud) data, pass it to the mobile app
@@ -101,10 +95,10 @@ Spot.prototype = function() {
     };
 
   return {
-    getData: getData,
-    getBeacon: getBeacon
+    getContent: getContent,
+    getSpotIdentifier: getSpotIdentifier
   };
 
-}();
+} ();
 
 module.exports = Spot;

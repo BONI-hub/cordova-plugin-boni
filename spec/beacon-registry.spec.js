@@ -62,9 +62,9 @@ describe("A beacon-registry", function() {
       beaconRegistry.clear();
       beaconRegistry.add(null, new Spot(td.registeredBeacon));
       var spot = beaconRegistry.get(td.registeredBeacon.uuid, td.registeredBeacon.major, td.registeredBeacon.minor);
-      expect(spot.getBeacon().uuid).toEqual(td.registeredBeacon.uuid);
-      expect(spot.getBeacon().major).toEqual(td.registeredBeacon.major);
-      expect(spot.getBeacon().minor).toEqual(td.registeredBeacon.minor);
+      expect(spot.getSpotIdentifier().uuid).toEqual(td.registeredBeacon.uuid);
+      expect(spot.getSpotIdentifier().major).toEqual(td.registeredBeacon.major);
+      expect(spot.getSpotIdentifier().minor).toEqual(td.registeredBeacon.minor);
     });
 
   });
@@ -79,7 +79,7 @@ describe("A beacon-registry", function() {
       var beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
         spot = new Spot(beacon);
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityImmediate');
     });
 
     it("not changed if cuurent is in the buffer and previouse is immediate", function() {
@@ -90,12 +90,12 @@ describe("A beacon-registry", function() {
         beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
         spot = new Spot(beacon);
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
-      spot.getBeacon().rssi = 111;
-      spot.getBeacon().tx = 100;
-      spot.getBeacon().previouseProximity = 'ProximityImmediate';
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityImmediate');
+      spot.getSpotIdentifier().rssi = 111;
+      spot.getSpotIdentifier().tx = 100;
+      spot.getSpotIdentifier().previouseProximity = 'ProximityImmediate';
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityImmediate');
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityImmediate');
     });
 
     it("is near if the proximity factor is more than 115 and less than 200", function() {
@@ -106,7 +106,7 @@ describe("A beacon-registry", function() {
         beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
         spot = new Spot(beacon);
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityNear');
     });
 
     it("not changed if cuurent is in the buffer and previouse is near", function() {
@@ -117,12 +117,12 @@ describe("A beacon-registry", function() {
         beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
         spot = new Spot(beacon);
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
-      spot.getBeacon().rssi = 206;
-      spot.getBeacon().tx = 100;
-      spot.getBeacon().previouseProximity = 'ProximityNear';
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityNear');
+      spot.getSpotIdentifier().rssi = 206;
+      spot.getSpotIdentifier().tx = 100;
+      spot.getSpotIdentifier().previouseProximity = 'ProximityNear';
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityNear');
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityNear');
     });
 
     it("is far if the proximity factor is more than 210", function() {
@@ -133,7 +133,7 @@ describe("A beacon-registry", function() {
         beacon = new Beacon('111-222-333', '1', '2', 'ProximityUnknown', rssi, tx, '1.5'),
         spot = new Spot(beacon);
       beaconRegistry.applyProximityStrategy(spot);
-      expect(spot.getBeacon().proximity).toEqual('ProximityFar');
+      expect(spot.getSpotIdentifier().proximity).toEqual('ProximityFar');
     });
 
   });

@@ -1,5 +1,7 @@
 'use strict';
 
+var Everlive = require('cordova.plugin.boni.everlive');
+
 /**
  * Object that represent beacon and contains all its metadata
  * @param {guid} uuid      	unique beacon identifier
@@ -14,7 +16,7 @@
  * @param {int} tx        	transmission power
  * @param {float} accuracy  rough distance estimate limited to two decimal places (in meteres)
  */
-var Beacon = function(uuid, major, minor, proximity, rssi, tx, accuracy) {
+var Beacon = function (uuid, major, minor, proximity, rssi, tx, accuracy) {
   /**
    * Check whether the mandatory arguments are provided
    */
@@ -31,8 +33,23 @@ var Beacon = function(uuid, major, minor, proximity, rssi, tx, accuracy) {
   this.proximity = proximity;
 };
 
-Beacon.prototype = function() {
+Beacon.prototype = function () {
 
-}();
+  var getQuery = function () {
+    var query = new Everlive.Query();
+    query.where()
+      .and()
+      .eq('uuid', this.uuid.toLowerCase())
+      .eq('major', this.major.toString())
+      .eq('minor', this.minor.toString());
+
+      return query;
+  };
+
+  return {
+    getQuery: getQuery
+  }
+
+} ();
 
 module.exports = Beacon;
