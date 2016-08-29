@@ -28,6 +28,9 @@
   <js-module name="beaconRegistry" src="www/beacon-registry.js">
     <runs/>
   </js-module>
+  <js-module name="registry" src="www/registry.js">
+    <runs/>
+  </js-module>
   <js-module name="boni" src="www/boni.js">
     <merges target="cordova.plugins"/>
   </js-module>

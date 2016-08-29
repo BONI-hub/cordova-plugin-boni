@@ -5,8 +5,8 @@ var Everlive = require('cordova.plugin.boni.everlive'),
 
 function DataProvider() {
     this.provider = new Everlive({
-      appId: config.apikey,
-      scheme: "https"
+        appId: config.apikey,
+        scheme: "https"
     });
 }
 
@@ -22,8 +22,6 @@ DataProvider.prototype = function() {
                 function(error) {
                     callback(error);
                 });
-
-
     };
 
     return {
