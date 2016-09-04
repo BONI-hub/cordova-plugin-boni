@@ -168,9 +168,19 @@ describe("A beacon-registry", function() {
             });
         });
 
+        it("do not register beacon if beacon is not valid (does not have uuid)", function() {
+            var beaconRegistry = new BeaconRegistry();
+            expect(function() { beaconRegistry.register({ "test": "test" }); }).toThrow(new Error('Beacon is not valid'));
+        });
+
     });
 
     describe("process", function() {
+
+        it("can throw exception Beacon is not valid", function() {
+            var beaconRegistry = new BeaconRegistry();
+            expect(function() { beaconRegistry.process(); }).toThrow("Beacon is not valid");
+        });
 
         it("call onImmediateToSpot if the beacon is immediate and has corresponding spot and content", function(done) {
             var beaconRegistry = new BeaconRegistry();
@@ -206,6 +216,17 @@ describe("A beacon-registry", function() {
             });
             td.registeredBeacon.rssi = 211;
             td.registeredBeacon.tx = 100;
+            beaconRegistry.process(td.registeredBeacon);
+        });
+
+        it("call onAlwaysForSpot always when there is a corresponding spot and content", function(done) {
+            var beaconRegistry = new BeaconRegistry();
+            beaconRegistry.clear();
+            expect(beaconRegistry.size()).toEqual(0);
+            beaconRegistry.onAlwaysForSpot(function() {
+                expect(beaconRegistry.size()).toEqual(1);
+                done();
+            });
             beaconRegistry.process(td.registeredBeacon);
         });
 

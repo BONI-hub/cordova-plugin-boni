@@ -15,71 +15,67 @@ Registry.prototype = function() {
 
         applyProximityStrategy = function(spot) {
 
-            if (spot) {
-                var identifier = spot.getSpotIdentifier();
-                var proximityFactor = identifier.calculateProximityFactor();
+            if (!spot) {
+                throw "Spot is not valid";
+            }
 
-                if (proximityFactor <= config.proximity.immediate.factor) {
-                    identifier.proximity = config.proximity.immediate.name;
-                } else if (proximityFactor >=
-                    config.proximity.immediate.factor + config.proximity.buffer &&
-                    proximityFactor <= config.proximity.near.factor) {
-                    identifier.proximity = config.proximity.near.name;
-                } else if (proximityFactor >=
-                    config.proximity.near.factor + config.proximity.buffer) {
-                    identifier.proximity = config.proximity.far.name;
-                } else {
-                    /**
-                     * If the proximityFactor is not in any of the buffers, keep the latest proximity
-                     */
-                    identifier.proximity = identifier.previouseProximity;
-                }
+            var identifier = spot.getSpotIdentifier();
+            var proximityFactor = identifier.calculateProximityFactor();
+
+            if (proximityFactor <= config.proximity.immediate.factor) {
+                identifier.proximity = config.proximity.immediate.name;
+            } else if (proximityFactor >=
+                config.proximity.immediate.factor + config.proximity.buffer &&
+                proximityFactor <= config.proximity.near.factor) {
+                identifier.proximity = config.proximity.near.name;
+            } else if (proximityFactor >=
+                config.proximity.near.factor + config.proximity.buffer) {
+                identifier.proximity = config.proximity.far.name;
+            } else {
+                /**
+                 * If the proximityFactor is not in any of the buffers, keep the latest proximity
+                 */
+                identifier.proximity = identifier.previouseProximity;
             }
         },
 
         callRegisteredCallback = function(spot) {
 
             if (!spot) {
-                return;
+                throw "Spot is not valid";
             }
 
             var identifier = spot.getSpotIdentifier();
 
             applyProximityStrategy(spot);
 
-
-            if (identifier.proximity) {
-
-                /**
-                 * If previouse proximity is not set or previouse proximity is different
-                 * than the current. The idea is to call callback only on change.
-                 */
-                if (!identifier.previouseProximity || identifier.proximity !==
-                    identifier.previouseProximity) {
+            /**
+             * If previouse proximity is not set or previouse proximity is different
+             * than the current. The idea is to call callback only on change.
+             */
+            if (!identifier.previouseProximity || identifier.proximity !==
+                identifier.previouseProximity) {
 
                     executeCallback(_onAlwaysForSpot, spot);
 
-                    /**
-                     * update the previouse proximity
-                     */
-                    identifier.previouseProximity = identifier.proximity;
+                /**
+                 * update the previouse proximity
+                 */
+                identifier.previouseProximity = identifier.proximity;
 
-                    /**
-                     * Call the appropreate callbacks if there are registered
-                     */
-                    switch (identifier.proximity) {
-                        case config.proximity.immediate.name:
-                            executeCallback(_onImmediateToSpot, spot);
-                            break;
-                        case config.proximity.near.name:
-                            executeCallback(_onNearToSpot, spot);
-                            break;
-                        case config.proximity.far.name:
-                            executeCallback(_onFarFromSpot, spot);
-                            break;
-                        default:
-
-                    }
+                /**
+                 * Call the appropreate callbacks if there are registered
+                 */
+                switch (identifier.proximity) {
+                    case config.proximity.immediate.name:
+                        executeCallback(_onImmediateToSpot, spot);
+                        break;
+                    case config.proximity.near.name:
+                        executeCallback(_onNearToSpot, spot);
+                        break;
+                    case config.proximity.far.name:
+                        executeCallback(_onFarFromSpot, spot);
+                        break;
                 }
             }
         },
@@ -87,8 +83,9 @@ Registry.prototype = function() {
         executeCallback = function(callback, spot) {
 
             if (_.isFunction(callback) && spot) {
+                var result = [];
+
                 if (spot.data) {
-                    var result = [];
 
                     for (var idx = 0; idx < spot.data.length; idx++) {
 
@@ -111,9 +108,9 @@ Registry.prototype = function() {
                         result.push(currentDataResult);
 
                     }
-
-                    callback(null, result);
                 }
+
+                callback(null, result);
             }
         },
 

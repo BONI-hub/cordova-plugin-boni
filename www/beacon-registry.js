@@ -58,7 +58,7 @@ BeaconRegistry.prototype = function() {
 
         register = function(beacon, done) {
 
-            if (beacon) {
+            if (beacon && beacon.uuid) {
 
                 var spot = new Spot(beacon);
                 if (spot) {
@@ -87,7 +87,7 @@ BeaconRegistry.prototype = function() {
         process = function(beacon) {
 
             if (!beacon) {
-                return;
+                throw "Beacon is not valid";
             }
 
             var spot = get(beacon.uuid, beacon.major,
@@ -128,5 +128,6 @@ BeaconRegistry.prototype = function() {
 }();
 
 _.extend(BeaconRegistry.prototype, Registry.prototype);
+BeaconRegistry.prototype.constructor = BeaconRegistry;
 
 module.exports = BeaconRegistry;
