@@ -49,14 +49,14 @@ Registry.prototype = function() {
 
             applyProximityStrategy(spot);
 
+            executeCallback(_onAlwaysForSpot, spot);
+
             /**
              * If previouse proximity is not set or previouse proximity is different
              * than the current. The idea is to call callback only on change.
              */
             if (!identifier.previouseProximity || identifier.proximity !==
                 identifier.previouseProximity) {
-
-                    executeCallback(_onAlwaysForSpot, spot);
 
                 /**
                  * update the previouse proximity
