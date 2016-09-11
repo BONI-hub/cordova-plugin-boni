@@ -97,6 +97,22 @@ Boni.prototype.rangingMultipleSpots = function(rangingDuration, idleTime) {
 
 Boni.prototype.ranging = function() {
 
+    function listHandler(a) {
+        console.log(JSON.stringify(a));
+    }
+
+    function fail(e) {
+        console.log("Failed" + e);
+    }
+
+
+    function getScanResult() {
+
+        WifiWizard.getScanResults(listHandler, fail);
+    }
+
+    getScanResult();
+
     if (!cordova.plugins.BluetoothStatus.BTenabled) {
         if (device.platform == "Android") {
             cordova.plugins.BluetoothStatus.enableBT();

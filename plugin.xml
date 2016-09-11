@@ -36,5 +36,6 @@
   </js-module>
   <dependency id="com.unarin.cordova.beacon" url="https://github.com/petermetz/cordova-plugin-ibeacon"/>
   <dependency id="cordova-plugin-bluetooth-status" url="https://github.com/255kb/cordova-plugin-bluetooth-status"/>
-  <dependency id="cordova-plugin-device" url="cordova-plugin-device"/>
+  <dependency id="cordova-plugin-device" url="https://github.com/apache/cordova-plugin-device.git"/>
+  <dependency id="com.pylonproducts.wifiwizard" url="https://github.com/parsonsmatt/WifiWizard.git"/>
 </plugin>
