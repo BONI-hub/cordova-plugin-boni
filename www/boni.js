@@ -2,6 +2,7 @@
 
 var config = require('cordova.plugin.boni.config'),
     BeaconRegistry = require('cordova.plugin.boni.beaconRegistry'),
+    Beacon = require('cordova.plugin.boni.beacon'),
     _ = require('cordova.plugin.boni.lodash'),
     beaconRegistry = new BeaconRegistry();
 
@@ -9,23 +10,23 @@ function Boni() {
     cordova.plugins.BluetoothStatus.initPlugin();
 }
 
-Boni.prototype.onImmediateToSpot = function (callback) {
+Boni.prototype.onImmediateToSpot = function(callback) {
     beaconRegistry.onImmediateToSpot(callback);
 };
 
-Boni.prototype.onNearToSpot = function (callback) {
+Boni.prototype.onNearToSpot = function(callback) {
     beaconRegistry.onNearToSpot(callback);
 };
 
-Boni.prototype.onFarFromSpot = function (callback) {
+Boni.prototype.onFarFromSpot = function(callback) {
     beaconRegistry.onFarFromSpot(callback);
 };
 
-Boni.prototype.onAlwaysForSpot = function (callback) {
+Boni.prototype.onAlwaysForSpot = function(callback) {
     beaconRegistry.onAlwaysForSpot(callback);
 };
 
-Boni.prototype.configure = function (configObj) {
+Boni.prototype.configure = function(configObj) {
     if (!configObj) {
         return;
     }
@@ -49,7 +50,7 @@ Boni.prototype.configure = function (configObj) {
     }
 };
 
-Boni.prototype.startRangingMultipleSpots = function () {
+Boni.prototype.startRangingMultipleSpots = function() {
     for (var supportedBeaconIdx = 0; supportedBeaconIdx < config.uuid.length; supportedBeaconIdx++) {
         var beaconRegion = new cordova.plugins.locationManager.BeaconRegion(config.identifier +
             supportedBeaconIdx, config.uuid[supportedBeaconIdx]);
@@ -64,18 +65,18 @@ Boni.prototype.startRangingMultipleSpots = function () {
     }
 };
 
-Boni.prototype.stopRangingMultipleSpots = function () {
+Boni.prototype.stopRangingMultipleSpots = function() {
     for (var supportedBeaconIdx = 0; supportedBeaconIdx < config.uuid.length; supportedBeaconIdx++) {
         var beaconRegion = new cordova.plugins.locationManager.BeaconRegion(config.identifier +
             supportedBeaconIdx, config.uuid[supportedBeaconIdx]);
 
         cordova.plugins.locationManager.stopRangingBeaconsInRegion(beaconRegion)
-            .fail(function (e) { console.error(e); })
+            .fail(function(e) { console.error(e); })
             .done();
     }
 };
 
-Boni.prototype.rangingMultipleSpots = function (rangingDuration, idleTime) {
+Boni.prototype.rangingMultipleSpots = function(rangingDuration, idleTime) {
     if (!rangingDuration) {
         rangingDuration = config.rangingDuration;
     }
@@ -86,15 +87,15 @@ Boni.prototype.rangingMultipleSpots = function (rangingDuration, idleTime) {
 
     var that = this;
 
-    setInterval(function () {
+    setInterval(function() {
         that.startRangingMultipleSpots();
-        setTimeout(function () {
+        setTimeout(function() {
             that.stopRangingMultipleSpots();
         }, rangingDuration);
     }, rangingDuration + idleTime);
 };
 
-Boni.prototype.ranging = function () {
+Boni.prototype.ranging = function() {
 
     if (!cordova.plugins.BluetoothStatus.BTenabled) {
         if (device.platform == "Android") {
@@ -106,12 +107,21 @@ Boni.prototype.ranging = function () {
 
     var delegate = new cordova.plugins.locationManager.Delegate();
 
-    delegate.didRangeBeaconsInRegion = function (pluginResult) {
+    delegate.didRangeBeaconsInRegion = function(pluginResult) {
         console.log("didRangeBeaconsInRegion");
         if (pluginResult && pluginResult.beacons) {
             for (var beaconIdx = 0; beaconIdx < pluginResult.beacons.length; beaconIdx++) {
                 var currentBeacon = pluginResult.beacons[beaconIdx];
-                beaconRegistry.process(currentBeacon);
+                var currentBeaconObj = new Beacon(
+                    currentBeacon.uuid,
+                    currentBeacon.major,
+                    currentBeacon.minor,
+                    currentBeacon.proximity,
+                    currentBeacon.rssi,
+                    currentBeacon.tx,
+                    currentBeacon.accuracy
+                );
+                beaconRegistry.process(currentBeaconObj);
             }
         }
     };
@@ -122,7 +132,7 @@ Boni.prototype.ranging = function () {
 
     // Initial ranging
     that.startRangingMultipleSpots();
-    setTimeout(function () {
+    setTimeout(function() {
         that.stopRangingMultipleSpots();
 
         that.rangingMultipleSpots();

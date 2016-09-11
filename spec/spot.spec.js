@@ -18,7 +18,7 @@ describe("A beacon", function() {
       done();
     }
     var spot = new Spot(td.notRegisteredBeacon);
-    spot.getData(dataReceived);
+    spot.getContent(dataReceived);
   });
 
   //This test is based on the existance of real data in Local BONI environment
@@ -33,6 +33,6 @@ describe("A beacon", function() {
       done();
     }
     var spot = new Spot(td.registeredBeacon);
-    spot.getData(dataReceived);
+    spot.getContent(dataReceived);
   });
 });

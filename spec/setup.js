@@ -35,6 +35,9 @@ Module.prototype.require = function() {
     case 'cordova.plugin.boni.beaconRegistry':
       arguments[0] = modulePath + '/../www/beacon-registry.js';
       break;
+    case 'cordova.plugin.boni.registry':
+      arguments[0] = modulePath + '/../www/registry.js';
+      break;
     case 'cordova.plugin.boni':
       arguments[0] = modulePath + '/../www/boni.js';
       break;
